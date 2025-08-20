@@ -1,10 +1,9 @@
-// In-memory storage for current session
-const sessionStorage: { [key: string]: any } = {};
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Storage utility functions (in-memory for now)
 export const saveToStorage = async (key: string, value: any) => {
   try {
-    sessionStorage[key] = value;
+    const serialized = JSON.stringify(value);
+    await AsyncStorage.setItem(key, serialized);
   } catch (error) {
     console.error('Error saving to storage:', error);
   }
@@ -12,7 +11,8 @@ export const saveToStorage = async (key: string, value: any) => {
 
 export const loadFromStorage = async (key: string, defaultValue: any) => {
   try {
-    return sessionStorage[key] !== undefined ? sessionStorage[key] : defaultValue;
+    const item = await AsyncStorage.getItem(key);
+    return item != null ? JSON.parse(item) : defaultValue;
   } catch (error) {
     console.error('Error loading from storage:', error);
     return defaultValue;
@@ -21,7 +21,7 @@ export const loadFromStorage = async (key: string, defaultValue: any) => {
 
 export const removeFromStorage = async (key: string) => {
   try {
-    delete sessionStorage[key];
+    await AsyncStorage.removeItem(key);
   } catch (error) {
     console.error('Error removing from storage:', error);
   }
@@ -29,22 +29,29 @@ export const removeFromStorage = async (key: string) => {
 
 export const clearStorage = async () => {
   try {
-    Object.keys(sessionStorage).forEach(key => {
-      delete sessionStorage[key];
-    });
+    await AsyncStorage.clear();
   } catch (error) {
     console.error('Error clearing storage:', error);
   }
 };
 
-// Get all storage keys
-export const getStorageKeys = () => {
-  return Object.keys(sessionStorage);
+export const getStorageKeys = async () => {
+  try {
+    return await AsyncStorage.getAllKeys();
+  } catch (error) {
+    console.error('Error getting storage keys:', error);
+    return [];
+  }
 };
 
-// Check if key exists in storage
-export const hasStorageKey = (key: string) => {
-  return sessionStorage[key] !== undefined;
+export const hasStorageKey = async (key: string) => {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    return keys.includes(key);
+  } catch (error) {
+    console.error('Error checking storage key:', error);
+    return false;
+  }
 };
 
 

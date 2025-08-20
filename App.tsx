@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, createContext, useContext, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, PermissionsAndroid, Platform, Alert, ActivityIndicator, TextInput, ScrollView, Dimensions, StatusBar, Animated, Appearance, Image } from 'react-native';
-import AsyncStorage from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Easing } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
@@ -16,7 +16,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
+import XLSX from 'xlsx';
+import RNFS from 'react-native-fs';
 // Initialize BLE Manager with proper error handling
 let manager: any = null;
 
@@ -55,6 +56,7 @@ const isLargeDevice = screenWidth >= 414 && screenWidth < 768; // iPhone 12 Pro 
 const isTablet = screenWidth >= 768; // iPad, Android tablets
 
 // Enhanced responsive scaling functions
+ 
 const scale = (size: number) => {
   if (isTinyDevice) return size * 0.7;
   if (isSmallDevice) return size * 0.8;
@@ -1087,25 +1089,31 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
   
   // Device Status State Variables
   const [isLoadingDeviceData, setIsLoadingDeviceData] = useState(true);
-  const [deviceStatusData, setDeviceStatusData] = useState({
-    batteryLevel: 75,
-    gsmSignal: 'inactive',
-    gsmSignalStrength: 0,
-    gsmPostStatus: 'off',
-    deviceDate: new Date().toLocaleDateString(),
-    deviceTime: new Date().toLocaleTimeString(),
-    solarLevel: 0,
-    logCount: 0,
-    latitude: 'N/A',
-    longitude: 'N/A',
-    IMEI_num: '',
-    IMEI: '',
-    imei: '',
-    imei_num: '',
-    imei_number: ''
-  });
+  // Device Status (live values)
+const [deviceStatusData, setDeviceStatusData] = useState({
+  deviceDate: new Date().toLocaleDateString(),  // maps to "date"
+  deviceTime: new Date().toLocaleTimeString(),  // maps to "time"
+  gsmSignalStrength: 0,                         // maps to "gsm_sig"
+  gsmPostStatus: 'off',                         // maps to "gsm_post_status"
+  batteryLevel: 0,                              // maps to "battery_lvl"
+  solarLevel: 0,                                // maps to "solar_lvl"
+  logCount: 0                                   // maps to "log_count"
+});
 
-  const [deviceConfigData, setDeviceConfigData] = useState<any>({});
+// Device Config (static configuration)
+const [deviceConfigData, setDeviceConfigData] = useState({
+  IMEI_num: '',                 // maps to IMEI_num
+  Servr_name: '',               // maps to Servr_name
+  Fr_vr: '',                    // maps to Fr_vr
+  data_freq: 0,                 // maps to data_freq
+  date_fr: 'DD-MM-YYYY',        // maps to date_fr
+  time_fr: 'HH:MM:SS',          // maps to time_fr
+  lat: 0,                       // maps to lat
+  lon: 0,                       // maps to lon
+  gpio_extender_enabled: 'No',  // maps to gpio_extender_enabled
+  gsm_sim_name: ''              // maps to gsm_sim_name
+});
+
   const [deviceServerSiteName, setDeviceServerSiteName] = useState('');
   const [logsIMEI, setLogsIMEI] = useState('');
   const [sensorConfigData, setSensorConfigData] = useState<any>({});
@@ -1152,190 +1160,153 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
   
   const [sensorStates, setSensorStates] = useState(DEFAULT_SENSOR_STATES);
 
-  // Load persistent sensor states on component mount
-  useEffect(() => {
-    const loadPersistentSensorStates = async () => {
-      const savedSensorStates = await loadFromStorage(STORAGE_KEYS.SENSOR_STATES, DEFAULT_SENSOR_STATES);
-      setSensorStates(savedSensorStates);
-      
-      // Also load saved sensor config data as fallback
-      const savedSensorConfig = await loadFromStorage('sensor_config_data', {});
-      if (Object.keys(savedSensorConfig).length > 0) {
-        console.log('Loading saved sensor config from storage:', Object.keys(savedSensorConfig).length, 'sensors');
-        setSensorConfigData(savedSensorConfig);
+useEffect(() => {
+  // Fetch fresh data on component mount
+  const fetchInitialData = async () => {
+    await refreshAllDeviceData();  // <-- same function you use for manual refresh
+  };
+  
+  fetchInitialData()
+
+}, []);
+
+  // Comprehensive refresh function with pop-up
+  // Utility to wait
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Generic step runner with retry support
+const runStep = async (
+  label: string,
+  progress: number,
+  fn: () => Promise<any>,
+  retry: boolean = true
+) => {
+  setRefreshStatus(label);
+  setRefreshProgress(progress);
+
+  try {
+    await fn();
+    console.log(`✅ ${label} completed`);
+    return true;
+  } catch (err) {
+    console.log(`⚠️ ${label} failed:`, err);
+    if (retry) {
+      console.log(`🔄 Retrying ${label}...`);
+      await sleep(1000);
+      try {
+        await fn();
+        console.log(`✅ ${label} retry successful`);
+        return true;
+      } catch (err2) {
+        console.log(`❌ ${label} retry failed:`, err2);
+      }
+    }
+    return false;
+  }
+};
+
+const refreshAllDeviceData = async (showPopup: boolean = true) => {
+  if (!device) {
+    console.log('❌ No device available for refresh');
+    return;
+  }
+
+  console.log('=== STARTING COMPREHENSIVE DEVICE REFRESH ===');
+
+  if (showPopup) {
+    setShowRefreshPopup(true);
+    setRefreshProgress(0);
+    setRefreshStatus('Initializing connection...');
+  }
+
+  try {
+    // Ensure device is connected (retry once if needed)
+    const ensureConnected = async () => {
+      try {
+        const isConnected = await device.isConnected();
+        if (!isConnected) {
+          console.log('🔌 Device disconnected, connecting...');
+          await device.connect();
+          await sleep(2000); // allow stabilization
+        }
+      } catch (err) {
+        console.log('⚠️ Error while connecting, retrying once...', err);
+        await device.connect;
+        await sleep(2000);
       }
     };
 
-    loadPersistentSensorStates();
-  }, []);
+    await ensureConnected();
 
-  // Comprehensive refresh function with pop-up
-  const refreshAllDeviceData = async (showPopup: boolean = true) => {
-    if (!device) {
-      console.log('No device available for refresh');
-      return;
-    }
+    // Sequential fetches (with connection check before each critical step)
+    await runStep('Fetching device status...', 25, async () => {
+      await ensureConnected();
+      return fetchDeviceStatus();
+    });
+
+    await runStep('Fetching device configuration...', 50, async () => {
+      await ensureConnected();
+      return fetchDeviceConfig();
+    });
+
+    await runStep('Fetching sensor data...', 75, async () => {
+      await ensureConnected();
+      console.log("_______________________________________________--------------------------__________________",device)
+      return fetchSensorData();
+    });
+
     
-    // Check if device is connected
-    try {
-      const isConnected = await device.isConnected();
-      if (!isConnected) {
-        console.log('Device is not connected, attempting to connect...');
-        await device.connect();
-        // Wait longer for connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      } else {
-        // Even if connected, wait a bit to ensure stability
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    } catch (error) {
-      console.log('Error checking device connection:', error);
-    }
-    
-    console.log('=== STARTING COMPREHENSIVE DEVICE REFRESH ===');
-    
-    // Show refresh pop-up only if requested
+
+    // Final validation
+    setRefreshStatus('Validating data...');
+
+    // Success
+    setRefreshStatus('Refresh completed successfully!');
+
     if (showPopup) {
-      setShowRefreshPopup(true);
-      setRefreshProgress(0);
-      setRefreshStatus('Initializing connection...');
+      setTimeout(() => {
+        setShowRefreshPopup(false);
+        setRefreshProgress(0);
+        setRefreshStatus('');
+      }, 2000);
     }
-    
-    try {
-      // Step 1: Fetch device status (25%)
-      setRefreshStatus('Fetching device status...');
-      setRefreshProgress(25);
-      let statusSuccess = false;
-      try {
-        await fetchDeviceStatus();
-        console.log('✅ Device status fetched successfully');
-        statusSuccess = true;
-        // Small delay to ensure device is ready for next command
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.log('⚠️ Device status fetch failed, will retry...', error);
-      }
-      
-      // Step 2: Fetch device configuration (50%)
-      setRefreshStatus('Fetching device configuration...');
-      setRefreshProgress(50);
-      let configSuccess = false;
-      try {
-        await fetchDeviceConfig();
-        console.log('✅ Device config fetched successfully');
-        configSuccess = true;
-        // Small delay to ensure device is ready for next command
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.log('⚠️ Device config fetch failed, will retry...', error);
-      }
-      
-      // Retry failed steps with longer delays
-      if (!statusSuccess) {
-        setRefreshStatus('Retrying device status...');
-        try {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await fetchDeviceStatus();
-          console.log('✅ Device status retry successful');
-        } catch (error) {
-          console.log('❌ Device status retry failed:', error);
-        }
-      }
-      
-      if (!configSuccess) {
-        setRefreshStatus('Retrying device configuration...');
-        try {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          await fetchDeviceConfig();
-          console.log('✅ Device config retry successful');
-        } catch (error) {
-          console.log('❌ Device config retry failed:', error);
-        }
-      }
-      
-      // Step 3: Fetch sensor data (75%)
-      setRefreshStatus('Fetching sensor data...');
-      setRefreshProgress(75);
-      try {
-        await fetchSensorData();
-        console.log('✅ Sensor data fetched successfully');
-        // Small delay to ensure device is ready for next command
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.log('⚠️ Sensor data fetch failed, continuing...', error);
-      }
-      
-      // Step 4: Fetch server site name (100%)
-      setRefreshStatus('Fetching server information...');
-      setRefreshProgress(100);
-      try {
-        await fetchServerSiteNameFromDevice();
-        console.log('✅ Server info fetched successfully');
-      } catch (error) {
-        console.log('⚠️ Server info fetch failed, continuing...', error);
-      }
-      
-      // Final validation and data check
-      setRefreshStatus('Validating data...');
-      const statusData = deviceStatusData;
-      const configData = deviceConfigData;
-      
-      console.log('Final data validation:');
-      console.log('Status data keys:', Object.keys(statusData));
-      console.log('Config data keys:', Object.keys(configData));
-      console.log('Battery level:', statusData.batteryLevel);
-      console.log('Latitude:', statusData.latitude);
-      console.log('Longitude:', statusData.longitude);
-      console.log('Firmware:', configData.Fr_vr || configData.Fr_Vr || configData.FR_v || configData.firmware || configData.Firmware);
-      
-      // Complete
-      setRefreshStatus('Refresh completed successfully!');
-      
-      // Hide pop-up after 2 seconds (only if popup was shown)
-      if (showPopup) {
-        setTimeout(() => {
-          setShowRefreshPopup(false);
-          setRefreshProgress(0);
-          setRefreshStatus('');
-        }, 2000);
-      }
-      
-      console.log('=== DEVICE REFRESH COMPLETED SUCCESSFULLY ===');
-      
-    } catch (error: any) {
-      console.error('Error during device refresh:', error);
-      setRefreshStatus(`Error: ${error.message}`);
-      
-      // Hide pop-up after 3 seconds on error (only if popup was shown)
-      if (showPopup) {
-        setTimeout(() => {
-          setShowRefreshPopup(false);
-          setRefreshProgress(0);
-          setRefreshStatus('');
-        }, 3000);
-      }
+
+    console.log('=== DEVICE REFRESH COMPLETED SUCCESSFULLY ===');
+  } catch (error: any) {
+    console.error('❌ Error during device refresh:', error);
+    setRefreshStatus(`Error: ${error.message}`);
+
+    if (showPopup) {
+      setTimeout(() => {
+        setShowRefreshPopup(false);
+        setRefreshProgress(0);
+        setRefreshStatus('');
+      }, 3000);
     }
-  };
+  }
+};
+
+
 
   // Single auto-fetch state
   const [autoFetchCompleted, setAutoFetchCompleted] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
 
   // Fetch device data (status, config, sensors) on component mount - ONLY ONCE
-  useEffect(() => {
-    const fetchDeviceData = async () => {
-      if (device && !autoFetchCompleted) {
-        console.log('=== DEVICE CONNECTED - STARTING SINGLE AUTO FETCH ===');
-        setLastFetchTime(new Date());
-        // Use the comprehensive refresh function instead
-        await refreshAllDeviceData(false); // Don't show popup for auto-fetch
-        setAutoFetchCompleted(true);
-        console.log('✅ Initial auto-fetch completed');
-      }
-    };
+  // useEffect(() => {
+  //   const fetchDeviceData = async () => {
+  //     if (device && !autoFetchCompleted) {
+  //       console.log('=== DEVICE CONNECTED - STARTING SINGLE AUTO FETCH ===');
+  //       setLastFetchTime(new Date());
+  //       // Use the comprehensive refresh function instead
+  //       await refreshAllDeviceData(false); // Don't show popup for auto-fetch
+  //       setAutoFetchCompleted(true);
+  //       console.log('✅ Initial auto-fetch completed');
+  //     }
+  //   };
     
-    fetchDeviceData();
-  }, [device, autoFetchCompleted]);
+  //   fetchDeviceData();
+  // }, [device, autoFetchCompleted]);
 
   // Removed connection monitoring to prevent conflicts
 
@@ -1451,729 +1422,517 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
 
   // Main function to fetch device status
   const fetchDeviceStatus = async () => {
-    if (!device) {
-      console.log('No device available');
+  if (!device) {
+    console.log('❌ No device available');
+    return;
+  }
+
+  setIsLoadingDeviceData(true);
+  console.log('🚀 Starting device status fetch...');
+
+  try {
+    // Cancel old connection
+    try {
+      await manager.cancelDeviceConnection(device.id);
+      await new Promise(res => setTimeout(res, 500));
+    } catch {
+      // ignore cancel errors
+    }
+
+    // Connect
+    console.log('🔌 Connecting to device...');
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log('✅ Device connected & services discovered');
+
+    // Commands to try
+    const commands = ['{$send_device_status}', 'send_device_status', 'device_status', 'status'];
+    let response: string | null = null;
+
+    for (const cmd of commands) {
+      try {
+        console.log(`➡️ Sending command: ${cmd}`);
+        const sent = await sendCommandInChunks(connectedDevice, cmd);
+        if (!sent) continue;
+
+        response = await monitorF3ForDeviceStatus(connectedDevice);
+        if (response) {
+          console.log(`✅ Got response for: ${cmd}`);
+          break;
+        }
+      } catch (err: any) {
+        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+      }
+    }
+
+    if (!response) {
+      console.log('❌ No response from device status command');
       return;
     }
 
-    setIsLoadingDeviceData(true);
-    console.log('Starting device status fetch...');
+    console.log('📥 Raw response:', response);
+    const statusData = parseDeviceStatus(response);
 
-    try {
-      // Cancel any existing connection first
-      try {
-        await manager.cancelDeviceConnection(device.id);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (err) {
-        // Ignore cancel errors
-      }
-      
-      // Connect with proper timeout
-      console.log('Connecting to device for data fetch...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
-      console.log('Device connected successfully for data fetch');
-
-      // Discover services and characteristics
-      await connectedDevice.discoverAllServicesAndCharacteristics();
-      console.log('Services discovered');
-
-      // Try different command formats
-      const commandsToTry = [
-        '{$send_device_status}',
-        '{$send_device_status}',
-        'send_device_status',
-        'device_status',
-        'status'
-      ];
-
-      let response = null;
-      let successfulCommand = null;
-
-      for (const command of commandsToTry) {
-        try {
-          console.log(`Trying command: "${command}"`);
-          
-          // Step 1: Send command to F1
-          const commandSent = await sendCommandInChunks(connectedDevice, command);
-          
-          if (!commandSent) {
-            console.log(`Failed to send command: "${command}"`);
-            continue;
-          }
-
-          // Step 2: Monitor F3 for response
-          console.log(`Monitoring F3 for response to command: "${command}"`);
-          response = await monitorF3ForDeviceStatus(connectedDevice);
-          
-          if (response) {
-            console.log(`Successfully received response for command: "${command}"`);
-            successfulCommand = command;
-                  break;
-                }
-        } catch (error: any) {
-          console.log(`Command "${command}" failed:`, error.message);
-          continue;
-        }
-      }
-
-      if (!response) {
-        console.log('No response received from any command');
-        // Don't show alert for no response - just log it
-        console.log('Device may not support status commands or may be busy');
-        return;
-      }
-
-      console.log(`Successful command: "${successfulCommand}"`);
-      console.log('Raw response:', response);
-      
-      // Step 3: Parse and update device status
-      const statusData = parseDeviceStatus(response as string);
-      
-      if (statusData) {
-        console.log('Parsed device status:', statusData);
-        
-        // Map different possible field names from device
-        const batteryLevel = parseFloat(statusData.battery_lvl || statusData.battery_level || statusData.bat || statusData.battery || statusData.Bat) || 75;
-        const gsmSignal = statusData.gsm_sig || statusData.gsm_signal || statusData.gsm || statusData.GSM || 'inactive';
-        const gsmSignalStrength = parseFloat(statusData.gsm_sig_strength || statusData.gsm_signal_strength || statusData.gsm_strength || statusData.signal_strength) || 0;
-        const gsmPostStatus = statusData.gsm_post_status || statusData.gsm_post || statusData.post_status || statusData.post || 'off';
-        // Parse date and time from device data
-        let deviceDate = 'No Date from Device';
-        let deviceTime = 'No Time from Device';
-        
-        // Check all possible date field names
-        if (statusData.date) {
-          deviceDate = statusData.date;
-        } else if (statusData.device_date) {
-          deviceDate = statusData.device_date;
-        } else if (statusData.Date) {
-          deviceDate = statusData.Date;
-        } else if (statusData.current_date) {
-          deviceDate = statusData.current_date;
-        } else if (statusData.deviceDate) {
-          deviceDate = statusData.deviceDate;
-        }
-        
-        // Check all possible time field names
-        if (statusData.time) {
-          deviceTime = statusData.time;
-        } else if (statusData.device_time) {
-          deviceTime = statusData.device_time;
-        } else if (statusData.Time) {
-          deviceTime = statusData.Time;
-        } else if (statusData.current_time) {
-          deviceTime = statusData.current_time;
-        } else if (statusData.deviceTime) {
-          deviceTime = statusData.deviceTime;
-        } else if (statusData.hour) {
-          deviceTime = statusData.hour;
-        } else if (statusData.hours) {
-          deviceTime = statusData.hours;
-        }
-        
-        // Check for separate minute and second fields
-        let minutes = statusData.minute || statusData.minutes || statusData.min || '00';
-        let seconds = statusData.second || statusData.seconds || statusData.sec || '00';
-        
-        // If we only have hours, format it properly
-        if (deviceTime && deviceTime !== 'No Time from Device' && !deviceTime.includes(':')) {
-          // If it's just a number (like "10"), format it as "10:00:00"
-          if (!isNaN(parseInt(deviceTime))) {
-            deviceTime = `${deviceTime}:${minutes}:${seconds}`;
-          }
-        }
-        
-        console.log('Parsed date/time:', { deviceDate, deviceTime });
-        console.log('All available fields:', Object.keys(statusData));
-        console.log('All field values:', statusData);
-        
-        // Temporary alert to show raw data
-        // Alert.alert(
-        //   'Raw Device Data',
-        //   `Fields: ${Object.keys(statusData).join(', ')}\n\nValues: ${JSON.stringify(statusData, null, 2)}`,
-        //   [{ text: 'OK' }]
-        // );
-        const solarLevel = parseFloat(statusData.solar_lvl || statusData.solar_level || statusData.solar || statusData.sol || statusData.Sol) || 0;
-        const logCount = parseInt(statusData.log_count || statusData.logs || statusData.count || statusData.Logs) || 0;
-        // Get latitude and longitude from device config data (not status data)
-        const latitude = deviceConfigData.lat || deviceConfigData.latitude || deviceConfigData.Lat || statusData.lat || statusData.latitude || statusData.Lat || 'N/A';
-        const longitude = deviceConfigData.lon || deviceConfigData.longitude || deviceConfigData.Lon || statusData.lon || statusData.longitude || statusData.Lon || 'N/A';
-        
-        console.log('Mapped values:', {
-          batteryLevel,
-          gsmSignal,
-          gsmPostStatus,
-          deviceDate,
-          deviceTime,
-          solarLevel,
-          logCount
-        });
-        
-        console.log('Raw statusData keys:', Object.keys(statusData));
-        console.log('Raw statusData values:', statusData);
-        
-        const newStatusData = {
-          batteryLevel,
-          gsmSignal,
-          gsmSignalStrength,
-          gsmPostStatus,
-          deviceDate,
-          deviceTime,
-          solarLevel,
-          logCount,
-          latitude,
-          longitude,
-          IMEI_num: statusData.IMEI_num || '',
-          IMEI: statusData.IMEI || '',
-          imei: statusData.imei || '',
-          imei_num: statusData.imei_num || '',
-          imei_number: statusData.imei_number || ''
-        };
-        
-        console.log('Setting new device status data:', newStatusData);
-        setDeviceStatusData(newStatusData);
-        
-        // Force UI refresh by updating loading state
-        setIsLoadingDeviceData(false);
-        setTimeout(() => setIsLoadingDeviceData(false), 100);
-        
-        console.log('Device status updated successfully');
-        
-        // Show success alert
-        // Alert.alert(
-        //   'Data Updated',
-        //   `Successfully fetched device data!\n\nBattery: ${batteryLevel}%\nGSM: ${gsmSignal}\nPost: ${gsmPostStatus}\nSolar: ${solarLevel}%`,
-        //   [{ text: 'OK' }]
-        // );
-      } else {
-        console.log('Failed to parse device status data');
-        console.log('Parse Error: Received data from device but could not parse it correctly. Check console for raw data.');
-      }
-
-    } catch (error: any) {
-      console.log('Error fetching device status:', error);
-              console.log(`Connection Error: Failed to connect to device: ${error.message}`);
-      // Keep default values on error
-    } finally {
-      setIsLoadingDeviceData(false);
+    if (!statusData) {
+      console.log('❌ Could not parse device status data');
+      return;
     }
-  };
+
+    // === Mapping fields ===
+    const batteryLevel = parseFloat(
+      statusData.battery_lvl || statusData.battery || '0'
+    ) || 0;
+
+    const gsmSignalStrength = parseFloat(
+      statusData.gsm_sig || statusData.gsm_signal_strength || '0'
+    ) || 0;
+
+    const gsmPostStatus = statusData.gsm_post_status || 'off';
+
+    const deviceDate =
+      statusData.date ||
+      statusData.device_date ||
+      new Date().toLocaleDateString();
+
+    let deviceTime =
+      statusData.time ||
+      statusData.device_time ||
+      new Date().toLocaleTimeString();
+
+    // Normalize time if numeric only
+    if (deviceTime && !deviceTime.includes(':')) {
+      const minutes = statusData.minutes || '00';
+      const seconds = statusData.seconds || '00';
+      deviceTime = `${deviceTime}:${minutes}:${seconds}`;
+    }
+
+    const solarLevel = parseFloat(statusData.solar_lvl || '0') || 0;
+    const logCount = parseInt(statusData.log_count || '0') || 0;
+
+    // From config if not in status
+    const latitude =
+      deviceConfigData.lat;
+    const longitude =
+      deviceConfigData.lon ;
+
+    const newStatusData = {
+      batteryLevel,
+      gsmSignal: gsmSignalStrength > 0 ? 'active' : 'inactive',
+      gsmSignalStrength,
+      gsmPostStatus,
+      deviceDate,
+      deviceTime,
+      solarLevel,
+      logCount,
+      latitude,
+      longitude
+    };
+
+    console.log('✅ Parsed Device Status:', newStatusData);
+    setDeviceStatusData(newStatusData);
+  } catch (err: any) {
+    console.log('❌ Error fetching device status:', err.message);
+  } finally {
+    setIsLoadingDeviceData(false);
+  }
+};
+
 
   // Function to fetch device configuration data
   const fetchDeviceConfig = async () => {
-    if (!device) {
-      console.log('No device available for config fetch');
+  if (!device) {
+    console.log("No device available for config fetch");
+    return;
+  }
+
+  console.log("=== STARTING DEVICE CONFIG FETCH ===");
+
+  try {
+    // 🔹 Always ensure a fresh connection
+    console.log("Getting fresh connection for config fetch...");
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+    console.log("✅ Device connected successfully for config fetch");
+
+    // 🔹 Verify connection is stable
+    if (!connectedDevice || !connectedDevice.isConnected) {
+      throw new Error("Device connection failed");
+    }
+
+    // 🔹 Discover services + characteristics
+    console.log("Discovering services and characteristics...");
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log("✅ Services discovered successfully for config fetch");
+
+    // 🔹 Commands to try (kept minimal, avoid duplicate entries)
+    const commandsToTry = [
+      "{$send_device_config}",
+    ];
+
+    let response: string | null = null;
+    let successfulCommand: string | null = null;
+
+    for (const command of commandsToTry) {
+      try {
+        console.log(`➡️ Sending config command: "${command}"`);
+
+        // Step 1: Send command
+        const sentOk = await sendCommandInChunks(connectedDevice, command);
+        if (!sentOk) {
+          console.log(`❌ Failed to send command: "${command}"`);
+          continue;
+        }
+
+        // Step 2: Wait for response from F3
+        console.log(`⏳ Waiting for response from F3 for "${command}"...`);
+        response = await monitorF3ForDeviceConfig(connectedDevice);
+
+        if (response) {
+          console.log(`✅ Response received for "${command}"`);
+          successfulCommand = command;
+          break; // stop after first success
+        }
+      } catch (err: any) {
+        console.log(`⚠️ Command "${command}" failed: ${err.message}`);
+      }
+    }
+
+    if (!response) {
+      console.log("❌ No config response received from any command");
       return;
     }
 
-    console.log('=== STARTING DEVICE CONFIG FETCH ===');
+    console.log(`🎯 Successful command: "${successfulCommand}"`);
+    console.log("📦 Raw config response:", response);
 
-    try {
-      // Always get a fresh connection to ensure it's working
-      console.log('Getting fresh connection for config fetch...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-      console.log('Device connected successfully for config fetch');
-
-      // Verify connection is stable
-      if (!connectedDevice || !connectedDevice.isConnected) {
-        throw new Error('Device connection failed');
-      }
-
-      // Discover services and characteristics
-      console.log('Discovering services and characteristics...');
-      await connectedDevice.discoverAllServicesAndCharacteristics();
-      console.log('Services discovered successfully for config fetch');
-
-      // Try different command formats (same pattern as device status)
-      const commandsToTry = [
-        '{$send_device_config}',
-        '{$send_device_config}',
-        'send_device_config',
-        'device_config',
-        'config'
-      ];
-
-      let response = null;
-      let successfulCommand = null;
-
-      for (const command of commandsToTry) {
-        try {
-          console.log(`Trying config command: "${command}"`);
-          
-          // Step 1: Send command to F1
-          const commandSent = await sendCommandInChunks(connectedDevice, command);
-          
-          if (!commandSent) {
-            console.log(`Failed to send config command: "${command}"`);
-            continue;
-          }
-
-          // Step 2: Monitor F3 for response
-          console.log(`Monitoring F3 for config response to command: "${command}"`);
-          response = await monitorF3ForDeviceConfig(connectedDevice);
-          
-          if (response) {
-            console.log(`Successfully received config response for command: "${command}"`);
-            successfulCommand = command;
-            break;
-          }
-        } catch (error: any) {
-          console.log(`Config command "${command}" failed:`, error.message);
-          continue;
-        }
-      }
-
-      if (!response) {
-        console.log('No config response received from any command');
-        // Alert.alert(
-        //   'No Device Config Response',
-        //   'The device did not respond to any config commands. Please check:\n\n1. Device is powered on\n2. Device supports config commands\n3. BLE connection is stable',
-        //   [{ text: 'OK' }]
-        // );
-        return;
-      }
-
-      console.log(`Successful config command: "${successfulCommand}"`);
-      console.log('Raw config response:', response);
-      
-      // Step 3: Parse and update device config
-      const configData = parseDeviceConfig(response as string);
-      
-      if (configData) {
-        console.log('✅ Parsed device config:', configData);
-        
-        // Store the config data
-        setDeviceConfigData(configData);
-        
-        // Alert.alert(
-        //   'Config Data Received',
-        //   `Successfully fetched device configuration data!\n\nConfig fields: ${Object.keys(configData).join(', ')}`,
-        //   [{ text: 'OK' }]
-        // );
-      } else {
-        console.log('❌ Failed to parse device config data');
-        // Alert.alert('Parse Error', 'Received config data but could not parse it correctly.');
-      }
-      
-    } catch (error: any) {
-      console.log('❌ Error fetching device config:', error);
-      // Alert.alert(
-      //   'Connection Error',
-      //   `Failed to fetch device config: ${error.message}`,
-      //   [{ text: 'OK' }]
-      // );
+    // Step 3: Parse and update config
+    const configData = parseDeviceConfig(response);
+    if (configData) {
+      console.log("✅ Parsed config:", configData);
+      setDeviceConfigData(configData); // store in state
+    } else {
+      console.log("❌ Failed to parse config response");
     }
-    
-    console.log('=== DEVICE CONFIG FETCH COMPLETED ===');
-  };
+  } catch (err: any) {
+    console.log("❌ Error during config fetch:", err.message || err);
+  }
+
+  console.log("=== DEVICE CONFIG FETCH COMPLETED ===");
+};
+
 
   // Function to monitor F3 for device config response
-  const monitorF3ForDeviceConfig = async (device: any) => {
-    return new Promise((resolve) => {
-      let responseBuffer = '';
-      let timeout: NodeJS.Timeout;
-      
-      const subscription = device.monitorCharacteristicForService(
+const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null> => {
+  return new Promise((resolve, reject) => {
+    let responseBuffer = '';
+    let timeoutHandle: any;
+
+    try {
+      console.log('Subscribing to F3 for device config...');
+
+      const subscription = connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
-        (error: any, characteristic: any) => {
+        (error, characteristic) => {
           if (error) {
-            console.log('Error monitoring F3 for config:', error);
-            clearTimeout(timeout);
-            resolve(null);
+            console.log('Error monitoring F3:', error);
+            clearTimeout(timeoutHandle);
+            subscription.remove();
+            reject(error);
             return;
           }
-          
-          if (characteristic && characteristic.value) {
-            const value = Buffer.from(characteristic.value, 'base64').toString('utf8');
-            console.log('F3 config data received:', value);
-            
-            responseBuffer += value;
-            
-            // Check if we have a complete config response (look for {...} pattern)
-            if (responseBuffer.includes('{') && responseBuffer.includes('}')) {
-              const startIndex = responseBuffer.indexOf('{');
-              const endIndex = responseBuffer.lastIndexOf('}');
-              
-              if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-                const completeResponse = responseBuffer.substring(startIndex, endIndex + 1);
-                console.log('Complete config response:', completeResponse);
-                
-                clearTimeout(timeout);
-                subscription.remove();
-                resolve(completeResponse);
-                return;
-              }
+
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('Received config chunk:', chunk);
+
+            responseBuffer += chunk;
+
+            // ✅ Stop condition: JSON end marker
+            if (responseBuffer.trim().endsWith('}')) {
+              clearTimeout(timeoutHandle);
+              subscription.remove();
+              resolve(responseBuffer);
             }
           }
         }
       );
-      
-      // Set timeout for config response
-      timeout = setTimeout(() => {
-        console.log('Timeout waiting for device config response');
+
+      // Fallback timeout
+      timeoutHandle = setTimeout(() => {
+        console.log('Config fetch timed out, returning partial data:', responseBuffer);
         subscription.remove();
-        resolve(null);
-      }, 10000); // 10 second timeout
-    });
-  };
+        resolve(responseBuffer || null);
+      }, 8000);
+
+    } catch (err) {
+      console.log('Error in monitorF3ForDeviceConfig:', err);
+      reject(err);
+    }
+  });
+};
+
+
+
 
   // Function to parse device configuration data
   const parseDeviceConfig = (data: string) => {
-    try {
-      console.log('Parsing device config data:', data);
-      
-      // Remove outer braces and split by comma
-      const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-      console.log('Cleaned config data:', cleanData);
-      
-      const pairs = cleanData.split(',');
-      const configData: any = {};
-      
-      pairs.forEach(pair => {
-        const [key, value] = pair.split(':');
-        if (key && value !== undefined) {
-          const cleanKey = key.trim();
-          const cleanValue = value.trim();
-          configData[cleanKey] = cleanValue;
-          console.log(`Config parsed: ${cleanKey} = ${cleanValue}`);
-        }
-      });
-      
-      console.log('Final parsed config data:', configData);
-      
-      // Extract and update all configuration values
-      const serverSiteName = configData.Servr_name || configData.Server || configData.server || configData.Server_site || configData.server_site || '';
-      if (serverSiteName) {
-        setDeviceServerSiteName(serverSiteName);
-        console.log('Device server site name extracted:', serverSiteName);
-        
-        // 🔥 NEW: Update parent components and local storage with fresh device data
-        if (setServerSiteName) {
-          setServerSiteName(serverSiteName);
-          console.log('Updated parent component with fresh server site name from config:', serverSiteName);
-        }
-        
-        // Update local storage with fresh device data
-        saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
-        console.log('Updated local storage with fresh server site name from config:', serverSiteName);
+  try {
+    console.log('Parsing device config data:', data);
+
+    // ✅ Step 1: Remove outer braces
+    let cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+
+    // ✅ Step 2: Remove the $device_config$ prefix if it exists
+    cleanData = cleanData.replace(/^\$?device_config\$/i, '').trim();
+    console.log('Cleaned config data:', cleanData);
+
+    // ✅ Step 3: Split by comma
+    const pairs = cleanData.split(',');
+    const configData: any = {};
+
+    pairs.forEach(pair => {
+      const [key, value] = pair.split(':');
+      if (key && value !== undefined) {
+        const cleanKey = key.trim();
+        const cleanValue = value.trim();
+        configData[cleanKey] = cleanValue;
+        console.log(`Config parsed: ${cleanKey} = ${cleanValue}`);
       }
-      
-      // Extract SIM name
-      const simName = configData.gsm_sim_name || configData.gsm_sim || configData.sim_name || '';
-      if (simName) {
-        console.log('Device SIM name extracted:', simName);
-        
-        // 🔥 NEW: Update dashboard's selectedSim state with fresh device data
-        setSelectedSim(simName);
-        console.log('Updated dashboard selectedSim with fresh device data:', simName);
-        
-        // 🔥 NEW: Update local storage with fresh SIM data
-        saveToStorage(STORAGE_KEYS.SELECTED_SIM, simName);
-        console.log('Updated local storage with fresh SIM name from config:', simName);
+    });
+
+    console.log('Final parsed config data:', configData);
+
+    // ✅ Extract and update all configuration values
+    const serverSiteName =
+      configData.Servr_name ||
+      configData.Server ||
+      configData.server ||
+      configData.Server_site ||
+      configData.server_site ||
+      '';
+    if (serverSiteName) {
+      setDeviceServerSiteName(serverSiteName);
+      console.log('Device server site name extracted:', serverSiteName);
+
+      if (setServerSiteName) {
+        setServerSiteName(serverSiteName);
+        console.log('Updated parent component with fresh server site name from config:', serverSiteName);
       }
-      
-      // Extract data frequency
-      const dataFreq = configData.data_freq || configData.data_frequency || '';
-      if (dataFreq) {
-        console.log('Device data frequency extracted:', dataFreq);
-      }
-      
-      // Extract date format
-      const dateFormat = configData.date_fr || configData.date_format || '';
-      if (dateFormat) {
-        console.log('Device date format extracted:', dateFormat);
-        
-        // 🔥 NEW: Update dashboard's selectedDateFormat state with fresh device data
-        setSelectedDateFormat(dateFormat);
-        console.log('Updated dashboard selectedDateFormat with fresh device data:', dateFormat);
-        
-        // 🔥 NEW: Update local storage with fresh date format data
-        saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, dateFormat);
-        console.log('Updated local storage with fresh date format from config:', dateFormat);
-      }
-      
-      // Extract time format
-      const timeFormat = configData.time_fr || configData.time_format || '';
-      if (timeFormat) {
-        console.log('Device time format extracted:', timeFormat);
-      }
-      
-      // Extract GPIO extender status
-      const gpioEnabled = configData.gpio_extender_enabled || '0';
-      if (gpioEnabled) {
-        console.log('Device GPIO extender status extracted:', gpioEnabled);
-      }
-      
-      return configData;
-      
-    } catch (error) {
-      console.log('Error parsing device config:', error);
-      return null;
+
+      saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
+      console.log('Updated local storage with fresh server site name from config:', serverSiteName);
     }
-  };
+
+    const simName =
+      configData.gsm_sim_name ||
+      configData.gsm_sim ||
+      configData.sim_name ||
+      '';
+    if (simName) {
+      console.log('Device SIM name extracted:', simName);
+      setSelectedSim(simName);
+      console.log('Updated dashboard selectedSim with fresh device data:', simName);
+      saveToStorage(STORAGE_KEYS.SELECTED_SIM, simName);
+      console.log('Updated local storage with fresh SIM name from config:', simName);
+    }
+
+    const dataFreq = configData.data_freq || configData.data_frequency || '';
+    if (dataFreq) {
+      console.log('Device data frequency extracted:', dataFreq);
+    }
+
+    const dateFormat = configData.date_fr || configData.date_format || '';
+    if (dateFormat) {
+      console.log('Device date format extracted:', dateFormat);
+      setSelectedDateFormat(dateFormat);
+      console.log('Updated dashboard selectedDateFormat with fresh device data:', dateFormat);
+      saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, dateFormat);
+      console.log('Updated local storage with fresh date format from config:', dateFormat);
+    }
+
+    const timeFormat = configData.time_fr || configData.time_format || '';
+    if (timeFormat) {
+      console.log('Device time format extracted:', timeFormat);
+    }
+
+    const gpioEnabled = configData.gpio_extender_enabled || '0';
+    if (gpioEnabled) {
+      console.log('Device GPIO extender status extracted:', gpioEnabled);
+    }
+
+    return configData;
+  } catch (error) {
+    console.log('Error parsing device config:', error);
+    return null;
+  }
+};
+
 
   // Function to fetch sensor data (current readings)
-  const fetchSensorData = async () => {
-    if (!device) {
-      console.log('No device available for sensor config fetch');
+  let isFetchingSensor = false; // 🚦 Prevent parallel fetches
+const utf8ToBase64 = (str: string): string => {
+  return Buffer.from(str, "utf8").toString("base64");
+};
+
+// Convert Base64 → UTF-8 string
+const base64ToUtf8 = (b64: string): string => {
+  return Buffer.from(b64, "base64").toString("utf8");
+};
+
+const fetchSensorData = async () => {
+  if (!device) {
+    console.log('❌ No device available');
+    return;
+  }
+
+  if (isFetchingSensor) return;
+  isFetchingSensor = true;
+
+  console.log('🚀 Starting sensor data fetch...');
+
+  try {
+    // Cancel old connection
+    try {
+      await manager.cancelDeviceConnection(device.id);
+      await new Promise(res => setTimeout(res, 500));
+    } catch {
+      // ignore cancel errors
+    }
+
+    // Connect
+    console.log('🔌 Connecting to device...');
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log('✅ Device connected & services discovered');
+
+    // Commands to try
+    const commands = ['{$send_sensor_data}'];
+    let response: string | null = null;
+    let successfulCommand: string | null = null;
+
+    for (const cmd of commands) {
+      try {
+        console.log(`➡️ Sending command: ${cmd}`);
+        await sendCommandInChunks(connectedDevice, cmd);
+
+        response = await monitorF3ForSensorConfig(connectedDevice);
+        if (response) {
+          console.log(`✅ Got response for: ${cmd}`);
+          successfulCommand = cmd;
+        const sensorData = parseSensorData(response);
+    if (sensorData) {
+      console.log("✅ Parsed sensordata:", sensorData);
+      setSensorConfigData(sensorData); // store in state
+    } else {
+      console.log("❌ Failed to parse config response");
+    }
+          break;
+        }
+      } catch (err: any) {
+        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+      }
+    }
+
+    if (!response) {
+      console.log('❌ No sensor data response received from device');
       return;
     }
 
-    console.log('=== STARTING SENSOR CONFIG FETCH ===');
+    console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
+    return response;
 
-    try {
-      // Always get a fresh connection to ensure it's working
-      console.log('Getting fresh connection for sensor config fetch...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-      console.log('Device connected successfully for sensor config fetch');
+  } catch (err: any) {
+    console.log('❌ Error fetching sensor config:', err.message);
+    throw err;
+  } finally {
+    isFetchingSensor = false;
+  }
+};
 
-      // Verify connection is stable
-      if (!connectedDevice || !connectedDevice.isConnected) {
-        throw new Error('Device connection failed');
-      }
 
-      // Discover services and characteristics
-      console.log('Discovering services and characteristics...');
-      await connectedDevice.discoverAllServicesAndCharacteristics();
-      console.log('Services discovered successfully for sensor config fetch');
 
-      // Try different command formats for sensor data (Command "3")
-      const commandsToTry = [
-        '{$send_sensor_data}',
-        'send_sensor_data',
-        'sensor_data',
-        'sensors',
-        '3'
-      ];
-
-      let response = null;
-      let successfulCommand = null;
-
-      for (const command of commandsToTry) {
-        try {
-          console.log(`Trying sensor config command: "${command}"`);
-          
-          // Step 1: Send command to F1
-          const commandSent = await sendCommandInChunks(connectedDevice, command);
-          
-          if (!commandSent) {
-            console.log(`Failed to send sensor config command: "${command}"`);
-            continue;
-          }
-
-          // Step 2: Monitor F3 for response
-          console.log(`Monitoring F3 for sensor config response to command: "${command}"`);
-          response = await monitorF3ForSensorConfig(connectedDevice);
-          
-          if (response) {
-            console.log(`Successfully received sensor config response for command: "${command}"`);
-            successfulCommand = command;
-            break;
-          }
-        } catch (error: any) {
-          console.log(`Sensor config command "${command}" failed:`, error.message);
-          continue;
-        }
-      }
-
-      if (!response) {
-        console.log('No sensor config response received from any command');
-        console.log('No Sensor Config Response: The device did not respond to any sensor config commands. Please check:\n\n1. Device is powered on\n2. Device supports sensor config commands\n3. BLE connection is stable');
-        return;
-      }
-
-      console.log(`Successful sensor config command: "${successfulCommand}"`);
-      console.log('Raw sensor config response:', response);
-      
-      // Store the raw data for display
-      setRawSensorData(response as string);
-      
-      // Step 3: Parse and update sensor config
-      const sensorData = parseSensorConfig(response as string);
-      
-      if (sensorData) {
-        console.log('✅ Parsed sensor config:', sensorData);
-        
-        // Store the sensor config data
-        setSensorConfigData(sensorData);
-        
-        // Also store in AsyncStorage for persistence
-        await saveToStorage('sensor_config_data', sensorData);
-        
-        console.log(`✅ Successfully fetched and stored ${Object.keys(sensorData).length} sensors`);
-      } else {
-        console.log('❌ Failed to parse sensor config data');
-        console.log('Raw response was:', response);
-        
-        // Try to load from storage as fallback
-        const savedData = await loadFromStorage('sensor_config_data', {});
-        if (Object.keys(savedData).length > 0) {
-          console.log('Loading saved sensor data from storage:', savedData);
-          setSensorConfigData(savedData);
-        }
-      }
-      
-    } catch (error: any) {
-      console.log('❌ Error fetching sensor config:', error);
-      // Alert.alert(
-      //   'Connection Error',
-      //   `Failed to fetch sensor config: ${error.message}`,
-      //   [{ text: 'OK' }]
-      // );
-    }
-    
-    console.log('=== SENSOR CONFIG FETCH COMPLETED ===');
-  };
 
   // Function to monitor F3 for sensor config response
-  const monitorF3ForSensorConfig = async (device: any) => {
-    return new Promise((resolve) => {
-      let responseBuffer = '';
-      let timeout: NodeJS.Timeout;
-      
-      const subscription = device.monitorCharacteristicForService(
-        SERVICE_UUID,
-        F3_NOTIFY_UUID,
-        (error: any, characteristic: any) => {
-          if (error) {
-            console.log('Error monitoring F3 for sensor config:', error);
-            clearTimeout(timeout);
-            resolve(null);
-            return;
-          }
-          
-          if (characteristic && characteristic.value) {
-            const value = Buffer.from(characteristic.value, 'base64').toString('utf8');
-            console.log('F3 sensor config data received:', value);
-            
-            responseBuffer += value;
-            
-            // Check if we have a complete sensor config response (look for {...} pattern)
-            if (responseBuffer.includes('{') && responseBuffer.includes('}')) {
-              const startIndex = responseBuffer.indexOf('{');
-              const endIndex = responseBuffer.lastIndexOf('}');
-              
-              if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-                const completeResponse = responseBuffer.substring(startIndex, endIndex + 1);
-                console.log('Complete sensor config response:', completeResponse);
-                
-                clearTimeout(timeout);
-                subscription.remove();
-                resolve(completeResponse);
-                return;
-              }
-            }
+const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let responseData = '';
+    const timeoutId = setTimeout(() => {
+      console.log('Sensor config response timeout');
+      reject(new Error('Sensor config response timeout'));
+    }, 10000);
+
+    const subscription = connectedDevice.monitorCharacteristicForService(
+      SERVICE_UUID,
+      F3_NOTIFY_UUID,
+      (error, characteristic) => {
+        if (error) {
+          console.log('F3 monitoring error (sensor config):', error);
+          clearTimeout(timeoutId);
+          subscription.remove();
+          reject(error);
+          return;
+        }
+
+        if (characteristic?.value) {
+          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+          console.log('Received F3 data (sensor config):', chunk);
+          responseData += chunk;
+
+          if (responseData.includes('{') && responseData.includes('}')) {
+            const start = responseData.indexOf('{');
+            const end = responseData.indexOf('}') + 1;
+            const completeMessage = responseData.substring(start, end);
+
+            console.log('Complete sensor config message:', completeMessage);
+            clearTimeout(timeoutId);
+            subscription.remove();
+            resolve(completeMessage);
           }
         }
-      );
-      
-      // Set timeout for sensor config response
-      timeout = setTimeout(() => {
-        console.log('Timeout waiting for sensor config response');
-        subscription.remove();
-        resolve(null);
-      }, 10000); // 10 second timeout
-    });
-  };
+      }
+    );
+  });
+};
+
+
+
 
   // Function to parse sensor configuration data
-  const parseSensorConfig = (data: string) => {
-    try {
-      console.log('Parsing sensor config data:', data);
-      
-      // Remove { } wrapper
-      const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-      console.log('Cleaned sensor config data:', cleanData);
-      
-      const sensorData: any = {};
-      const sensorNames: string[] = []; // Array to store just the sensor names
-      
-      // Use while loop to find all S_Name:%s patterns
-      let currentData = cleanData;
-      let startIndex = 0;
-      
-      while (true) {
-        // Find next S_Name: occurrence
-        const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-        if (sNameIndex === -1) break; // No more S_Name: found
-        
-        // Find the end of this sensor entry (next S_Name: or end of string)
-        const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
-        const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-        
-        // Extract this sensor entry
-        const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
-        console.log('Processing sensor entry:', sensorEntry);
-        
-        try {
-          // Parse the sensor name (everything before first comma)
-          const commaIndex = sensorEntry.indexOf(',');
-          if (commaIndex !== -1) {
-            const sensorName = sensorEntry.substring(0, commaIndex).trim();
-            console.log('Found sensor name:', sensorName);
-            
-            if (sensorName) {
-              // Count how many times this sensor name appears to handle duplicates
-              const existingCount = sensorNames.filter(name => name === sensorName).length;
-              const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-              
-              sensorNames.push(uniqueSensorKey);
-              
-              // Try to extract offset and scale
-              const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-              const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-              
-              if (offsetMatch && scaleMatch) {
-                const offset = parseFloat(offsetMatch[1]);
-                const scale = parseFloat(scaleMatch[1]);
-                
-                sensorData[uniqueSensorKey] = {
-                  name: uniqueSensorKey,
-                  offset: offset,
-                  scale: scale
-                };
-                
-                console.log(`Parsed sensor: ${uniqueSensorKey}, Offset: ${offset}, Scale: ${scale}`);
-              } else {
-                // If no offset/scale, just store the name
-                sensorData[uniqueSensorKey] = {
-                  name: uniqueSensorKey,
-                  offset: 0,
-                  scale: 1
-                };
-              }
-            }
-          }
-        } catch (sensorError) {
-          console.log('Error parsing individual sensor:', sensorError);
-        }
-        
-        // Move to next position
-        startIndex = sNameIndex + 7;
+const parseSensorData = (rawResponse: string) => {
+  try {
+    // 1. Strip outer braces and trailing commas
+    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
+
+    // 2. Split by commas, then into key:value pairs
+    const tokens = clean.split(/,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
+
+    const sensors: any[] = [];
+    let current: any = {};
+
+    tokens.forEach(token => {
+      const [key, value] = token.split(":");
+
+      if (key === "S_Name" && Object.keys(current).length > 0) {
+        // start of new sensor → push previous
+        sensors.push(current);
+        current = {};
       }
-      
-      // Update the sensor states with actual sensor names from device
-      if (sensorNames.length > 0) {
-        const newSensorStates: any = {};
-        sensorNames.forEach(sensorName => {
-          // Keep existing state if sensor already exists, otherwise enable by default
-          newSensorStates[sensorName] = sensorStates[sensorName] !== undefined ? sensorStates[sensorName] : true;
-        });
-        setSensorStates(newSensorStates);
-        
-        // Save to storage for persistence
-        saveToStorage(STORAGE_KEYS.SENSOR_STATES, newSensorStates);
-        console.log('Dynamically updated sensor states with device sensors:', newSensorStates);
-      }
-      
-      console.log('Final parsed sensor config:', sensorData);
-      return sensorData;
-    } catch (error) {
-      console.log('Error parsing sensor config:', error);
-      return null;
+
+      current[key.trim()] = value?.trim() || "";
+    });
+
+    // push last one
+    if (Object.keys(current).length > 0) {
+      sensors.push(current);
     }
-  };
+
+    return sensors;
+  } catch (err) {
+    console.error("❌ Failed to parse sensor data:", err);
+    return [];
+  }
+};
+
 
   // Function to extract IMEI from logs data
   const extractIMEIFromLogs = (logsData: string) => {
@@ -2507,91 +2266,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
     }
   };
 
-  // Auto-fetch device status when dashboard opens
-  useEffect(() => {
-    if (device) {
-      console.log('Dashboard opened, fetching FRESH device data...');
-      
-      // Clear any cached data first
-      setDeviceStatusData({
-        batteryLevel: 75,
-        gsmSignal: 'inactive',
-        gsmSignalStrength: 0,
-        gsmPostStatus: 'off',
-        deviceDate: new Date().toLocaleDateString(),
-        deviceTime: new Date().toLocaleTimeString(),
-        solarLevel: 0,
-        logCount: 0,
-        latitude: 'N/A',
-        longitude: 'N/A',
-        IMEI_num: '',
-        IMEI: '',
-        imei: '',
-        imei_num: '',
-        imei_number: ''
-      });
-      setDeviceConfigData({});
-      setDeviceServerSiteName('');
-      
-      // Always try to fetch fresh data from device
-      const fetchFreshData = async () => {
-        try {
-          console.log('Fetching fresh device data...');
-          await fetchDeviceStatus();
-          await fetchDeviceConfig();
-          await fetchSensorData();
-          
-          // Always try to fetch server site name, even if device wasn't connected before
-      if (device.connectedDevice && device.isConnected) {
-            console.log('Device is connected, fetching fresh server site name...');
-            await fetchServerSiteNameFromDevice();
-      } else {
-            console.log('Attempting to connect and fetch fresh server site name...');
-            try {
-              const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
-              await connectedDevice.discoverAllServicesAndCharacteristics();
-              await fetchServerSiteNameFromDevice();
-            } catch (error: any) {
-              console.log('Could not fetch fresh server site name:', error.message);
-            }
-          }
-          
-          // 🔥 NEW: Update parent components with fresh device data
-          // This ensures the top card shows the same fresh data as device info
-          if (setServerSiteName && deviceServerSiteName) {
-            console.log('Updating parent with fresh server site name:', deviceServerSiteName);
-            setServerSiteName(deviceServerSiteName);
-          }
-          
-          // 🔥 NEW: Update dashboard state and local storage with fresh device data
-          // This ensures the dashboard shows fresh data immediately
-          if (deviceConfigData.gsm_sim_name) {
-            console.log('Updating dashboard selectedSim with fresh device data:', deviceConfigData.gsm_sim_name);
-            setSelectedSim(deviceConfigData.gsm_sim_name);
-            saveToStorage(STORAGE_KEYS.SELECTED_SIM, deviceConfigData.gsm_sim_name);
-          }
-          
-          if (deviceConfigData.date_fr) {
-            console.log('Updating dashboard selectedDateFormat with fresh device data:', deviceConfigData.date_fr);
-            setSelectedDateFormat(deviceConfigData.date_fr);
-            saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, deviceConfigData.date_fr);
-          }
-          
-        } catch (error: any) {
-          console.error('Error fetching fresh device data:', error);
-          // Don't show error to user, just log it
-          console.log('Continuing with existing data...');
-        }
-      };
-      
-      // Fetch fresh data immediately with error handling
-      try {
-        fetchFreshData();
-      } catch (error) {
-        console.log('Error in fetchFreshData, continuing with existing data:', error);
-      }
-    }
-  }, [device]);
+
 
   // Function to refresh device configuration after settings update
   const refreshDeviceConfiguration = async () => {
@@ -3365,9 +3040,9 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
                   setTimeout(() => {
                     const configInfo = Object.keys(deviceConfigData).length > 0 
                       ? `Device Config Data:\n\n${Object.entries(deviceConfigData).map(([key, value]) => `${key}: ${value}`).join('\n')}`
-                      : 'Device Config Data: No data received yet';
+                      : 'device Config Data  : No data received yet';
                     
-                    console.log('Device Config Data:', configInfo);
+                    console.log('deviceConfigData  :', configInfo);
                   }, 3000); // Wait 3 seconds for fetch to complete
                 }}
                 activeOpacity={0.8}
@@ -3620,7 +3295,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
 
             
             {/* Manual Refresh Button */}
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={{
                 backgroundColor: '#2196F3',
                 borderRadius: 8,
@@ -3648,7 +3323,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
                   Refresh
                 </Text>
               </View>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <View style={{
               backgroundColor: deviceStatusData.batteryLevel < 30 ? '#ffebee' : '#e8f5e8',
               paddingHorizontal: 12,
@@ -3722,6 +3397,8 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               </View>
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>Sensors</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>
+                
+                
                 {Object.keys(sensorConfigData).length > 0 ? Object.keys(sensorConfigData).length : Object.values(sensorStates).filter(Boolean).length} Active
               </Text>
             </View>
@@ -3785,13 +3462,13 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               )}
             </Text>
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Firmware:</Text> {deviceConfigData.Fr_vr || deviceConfigData.Fr_Vr || deviceConfigData.FR_v || deviceConfigData.firmware || deviceConfigData.Firmware || 'v2.1.4'}
+              <Text style={{ fontWeight: 'bold' }}>Firmware:</Text> {deviceConfigData.Fr_vr || 'v2.1.4'}
             </Text>
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Latitude:</Text> {deviceStatusData.latitude || 'N/A'}
+              <Text style={{ fontWeight: 'bold' }}>Latitude:</Text> {deviceConfigData.lat || 'N/A'}
             </Text>
             <Text style={{ fontSize: 12, color: '#666' }}>
-              <Text style={{ fontWeight: 'bold' }}>Longitude:</Text> {deviceStatusData.longitude || 'N/A'}
+              <Text style={{ fontWeight: 'bold' }}>Longitude:</Text> {deviceConfigData.lon || 'N/A'}
             </Text>
           </View>
 
@@ -3889,14 +3566,11 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ fontSize: 12, color: '#333', fontFamily: 'monospace', flex: 1 }}>
                   {(() => {
-                    const imeiValue = deviceConfigData.IMEI_num || deviceConfigData.IMEI || deviceConfigData.imei || deviceConfigData.imei_num || 
-                                     deviceStatusData.IMEI_num || deviceStatusData.IMEI || deviceStatusData.imei || deviceStatusData.imei_num || 
-                                     deviceConfigData.imei_number || deviceStatusData.imei_number ||
-                                     logsIMEI ||
-                                     'No IMEI data';
+                    const imeiValue = deviceConfigData.IMEI_num ||'No IMEI data';
                     console.log('IMEI Display Value:', imeiValue);
                     console.log('Device Config Data:', deviceConfigData);
                     console.log('Device Status Data:', deviceStatusData);
+                    console.log('sensor Data:', sensorConfigData);
                     console.log('Logs IMEI:', logsIMEI);
                     return imeiValue;
                   })()}
@@ -3951,10 +3625,10 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               </Text>
             </View>
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Active:</Text> {Object.values(sensorStates).filter(Boolean).length}
+              <Text style={{ fontWeight: 'bold' }}>Active:</Text> {Object.values(sensorConfigData).filter(Boolean).length}
             </Text>
             <Text style={{ fontSize: 12, color: '#666' }}>
-              <Text style={{ fontWeight: 'bold' }}>Total:</Text> {Object.keys(sensorStates).length}
+              <Text style={{ fontWeight: 'bold' }}>Total:</Text> {Object.keys(sensorConfigData).length}
             </Text>
           </View>
 
@@ -4095,130 +3769,94 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
         </View>
 
         {/* Active Sensors List */}
-        <View style={{
-          backgroundColor: '#fff',
-          borderRadius: 16,
-          padding: 20,
-          marginBottom: 16,
-          elevation: 3,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
+        {/* Active Sensors List */}
+<View style={{
+  backgroundColor: '#fff',
+  borderRadius: 16,
+  padding: 20,
+  marginBottom: 16,
+  elevation: 3,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+}}>
+  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+    <View style={{
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: '#e3f2fd',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      <Icon name="tune" size={20} color="#2196F3" />
+    </View>
+    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
+      Active Sensors
+    </Text>
+  </View>
+
+  {sensorConfigData && sensorConfigData.length > 0 ? (
+    sensorConfigData
+      .filter(sensor => sensor.is_en === "Yes") // only enabled
+      .map((sensor, index, filteredArray) => (
+        <View key={sensor.S_Name || index} style={{ 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          marginBottom: index < filteredArray.length - 1 ? 12 : 0,
+          paddingBottom: index < filteredArray.length - 1 ? 12 : 0,
+          borderBottomWidth: index < filteredArray.length - 1 ? 1 : 0,
+          borderBottomColor: '#f0f0f0',
         }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-            <View style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              backgroundColor: '#e3f2fd',
-              alignItems: 'center',
-              justifyContent: 'center',
+          <View style={{
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: '#4CAF50',
+            marginRight: 12,
+          }} />
+          <Text style={{ 
+            fontSize: 14, 
+            color: '#333',
+            flex: 1,
+          }}>
+            {sensor.S_Name || "Unnamed Sensor"}
+          </Text>
+          <Text style={{ 
+            fontSize: 14, 
+            color: '#0008efff',
+            flex: 1,
+          }}>
+            {sensor.Val || "N/A"}
+          </Text>
+          <View style={{
+            backgroundColor: '#e8f5e8',
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderRadius: 12,
+          }}>
+            <Text style={{ 
+              fontSize: 10, 
+              color: '#4CAF50',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
             }}>
-              <Icon name="tune" size={20} color="#2196F3" />
-            </View>
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
-              Active Sensors
+              Active
             </Text>
           </View>
-          
-          {Object.keys(sensorConfigData).length > 0 ? (
-            // Show only enabled sensors from sensorConfigData
-            Object.keys(sensorConfigData)
-            .filter(sensorName => sensorStates[sensorName as any] === true)
-            .map((sensorName, index, filteredArray) => (
-              <View key={sensorName} style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                marginBottom: index < filteredArray.length - 1 ? 12 : 0,
-                paddingBottom: index < filteredArray.length - 1 ? 12 : 0,
-                borderBottomWidth: index < filteredArray.length - 1 ? 1 : 0,
-                borderBottomColor: '#f0f0f0',
-              }}>
-                <View style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#4CAF50',
-                  marginRight: 12,
-                }} />
-                <Text style={{ 
-                  fontSize: 14, 
-                  color: '#333',
-                  flex: 1,
-                }}>
-                  {sensorName}
-                </Text>
-                <View style={{
-                  backgroundColor: '#e8f5e8',
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                }}>
-                  <Text style={{ 
-                    fontSize: 10, 
-                    color: '#4CAF50',
-                    fontWeight: 'bold',
-                    textTransform: 'uppercase',
-                  }}>
-                    Active
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            Object.entries(sensorStates)
-            .filter(([sensorName, isEnabled]) => isEnabled)
-            .map(([sensorName, isEnabled], index) => (
-              <View key={sensorName} style={{ 
-                flexDirection: 'row', 
-                alignItems: 'center', 
-                marginBottom: index < Object.entries(sensorStates).filter(([sensorName, isEnabled]) => isEnabled).length - 1 ? 12 : 0,
-                paddingBottom: index < Object.entries(sensorStates).filter(([sensorName, isEnabled]) => isEnabled).length - 1 ? 12 : 0,
-                borderBottomWidth: index < Object.entries(sensorStates).filter(([sensorName, isEnabled]) => isEnabled).length - 1 ? 1 : 0,
-                borderBottomColor: '#f0f0f0',
-              }}>
-                <View style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#4CAF50',
-                  marginRight: 12,
-                }} />
-                <Text style={{ 
-                  fontSize: 14, 
-                  color: '#333',
-                  flex: 1,
-                }}>
-                  {sensorName}
-                </Text>
-                <View style={{
-                  backgroundColor: '#e8f5e8',
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                }}>
-                  <Text style={{ 
-                    fontSize: 10, 
-                    color: '#4CAF50',
-                    fontWeight: 'bold',
-                    textTransform: 'uppercase',
-                  }}>
-                    Active
-                  </Text>
-                </View>
-              </View>
-              ))
-          )}
-          {Object.keys(sensorConfigData).length === 0 && Object.entries(sensorStates).filter(([sensorName, isEnabled]) => isEnabled).length === 0 && (
-            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-              <Icon name="alert-circle" size={32} color="#ccc" />
-              <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' }}>
-                No sensors currently active
-              </Text>
-            </View>
-          )}
         </View>
+      ))
+  ) : (
+    <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+      <Icon name="alert-circle" size={32} color="#ccc" />
+      <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' }}>
+        No sensors currently active
+      </Text>
+    </View>
+  )}
+</View>
+
       </ScrollView>
 
       {/* Sensor Data Popup */}
@@ -4428,6 +4066,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
 
 function SettingsScreen({ navigation, route }: { navigation: any; route: any }) {
   const { currentTime } = useTimer();
+  
   const { theme, themeType, setThemeType, toggleTheme } = useTheme();
   const { 
     serverSiteName: initialServerSiteName, 
@@ -4439,7 +4078,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     selectedDateFormat: initialSelectedDateFormat,
     setSelectedDateFormat: setParentSelectedDateFormat,
     sensorStates: initialSensorStates,
-    setSensorStates: setParentSensorStates
+    setSensorStates: setParentSensorStates,
+    device
   } = route.params || {};
   const [serverSiteName, setLocalServerSiteName] = useState(initialServerSiteName || 'Site-001');
   const [selectedSim, setLocalSelectedSim] = useState(initialSelectedSim || 'Jio');
@@ -4454,7 +4094,9 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const [selectedHours, setSelectedHours] = useState(1);
   const [sensorConfigData, setSensorConfigData] = useState<{[key: string]: {offset: string, scale: string}}>({});
   const [rawSensorData, setRawSensorData] = useState<string>('');
-
+  const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
+  const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+  const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
   // Load persistent settings on component mount
   useEffect(() => {
     const loadPersistentSettings = async () => {
@@ -4471,8 +4113,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
           await connectedDevice.discoverAllServicesAndCharacteristics();
           
           // Send command to get device config
-          const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
-          const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+         
           
           const configCommand = '{$send_device_config}';
           const encoded = Buffer.from(configCommand, 'utf8');
@@ -4656,8 +4297,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
         
         await device.writeCharacteristicWithoutResponseForService(
-          '00000180-0000-1000-8000-00805f9b34fb',
-          '0000fff1-0000-1000-8000-00805f9b34fb',
+          SERVICE_UUID,
+          F1_WRITE_UUID,
           base64Chunk
         );
         
@@ -4672,180 +4313,169 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       return false;
     }
   };
+const parseSensorDataToConfig = (rawResponse: string): {
+  [key: string]: { offset: string; scale: string };
+} => {
+  try {
+    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
 
-  // Fetch sensor configuration from device
-  const fetchSensorConfig = async () => {
-    const { device } = route.params || {};
-    if (!device) {
-      console.log('No device available for sensor config fetch');
+    const tokens = clean.split(
+      /,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/
+    );
+
+    const sensors: { [key: string]: { offset: string; scale: string } } = {};
+    let current: any = {};
+
+    tokens.forEach(token => {
+      const [key, value] = token.split(":");
+
+      if (key === "S_Name" && Object.keys(current).length > 0) {
+        const name = current["S_Name"] || `Sensor_${Object.keys(sensors).length + 1}`;
+        sensors[name] = {
+          offset: current["Offset"] || "",
+          scale: current["Scale"] || ""
+        };
+        current = {};
+      }
+
+      current[key.trim()] = value?.trim() || "";
+    });
+
+    // push last one
+    if (Object.keys(current).length > 0) {
+      const name = current["S_Name"] || `Sensor_${Object.keys(sensors).length + 1}`;
+      sensors[name] = {
+        offset: current["Offset"] || "",
+        scale: current["Scale"] || ""
+      };
+    }
+
+    return sensors;
+  } catch (err) {
+    console.error("❌ Failed to parse sensor config:", err);
+    return {};
+  }
+};
+
+
+
+ const fetchSensorData = async () => {
+  if (!device) {
+    console.log('❌ No device available');
+    return;
+  }
+
+
+
+  console.log('🚀 Starting sensor data fetch...');
+
+  try {
+    // Cancel old connection
+    try {
+      await manager.cancelDeviceConnection(device.id);
+      await new Promise(res => setTimeout(res, 500));
+    } catch {
+      // ignore cancel errors
+    }
+
+    // Connect
+    console.log('🔌 Connecting to device...');
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log('✅ Device connected & services discovered');
+
+    // Commands to try
+    const commands = ['{$send_sensor_data}'];
+    let response: string | null = null;
+    let successfulCommand: string | null = null;
+
+    for (const cmd of commands) {
+      try {
+        console.log(`➡️ Sending command: ${cmd}`);
+        await sendCommandInChunks(connectedDevice, cmd);
+
+        response = await monitorF3ForSensorConfig(connectedDevice);
+        if (response) {
+          console.log(`✅ Got response for: ${cmd}`);
+          successfulCommand = cmd;
+        const sensorData = parseSensorDataToConfig(response);
+    if (sensorData) {
+      console.log("✅ Parsed sensordata:", sensorData);
+      setSensorConfigData(sensorData); // store in state
+      console.log("_____-------------------]]]]]]]][[[[[[",sensorConfigData)
+    } else {
+      console.log("❌ Failed to parse config response");
+    }
+          break;
+        }
+      } catch (err: any) {
+        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+      }
+    }
+
+    if (!response) {
+      console.log('❌ No sensor data response received from device');
       return;
     }
 
-    console.log('=== STARTING SENSOR CONFIG FETCH ===');
+    console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
+    return response;
 
-    try {
-      // Always get a fresh connection to ensure it's working
-      console.log('Getting fresh connection for sensor config fetch...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-      console.log('Device connected successfully for sensor config fetch');
+  } catch (err: any) {
+    console.log('❌ Error fetching sensor config:', err.message);
+    throw err;
+  } finally {
+  
+  }
+};
 
-      // Verify connection is stable
-      if (!connectedDevice || !connectedDevice.isConnected) {
-        throw new Error('Device connection failed');
-      }
 
-      // Discover services and characteristics
-      console.log('Discovering services and characteristics...');
-      await connectedDevice.discoverAllServicesAndCharacteristics();
-      console.log('Services discovered successfully for sensor config fetch');
 
-      // Try different command formats (same pattern as device config)
-      const commandsToTry = [
-        '3',  // This should trigger the sensor config from Python device
-        '{$sensor_config$}',
-        '{$send_sensor_data}',
-        'sensor_config',
-        'send_sensor_data',
-        'sensors'
-      ];
+  // Function to monitor F3 for sensor config response
+const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let responseData = '';
+    const timeoutId = setTimeout(() => {
+      console.log('Sensor config response timeout');
+      reject(new Error('Sensor config response timeout'));
+    }, 10000);
 
-      let response = null;
-      let successfulCommand = null;
-
-      for (const command of commandsToTry) {
-        try {
-          console.log(`Trying sensor config command: "${command}"`);
-          
-          // Step 1: Send command to F1
-          const commandSent = await sendCommandInChunks(connectedDevice, command);
-          
-          if (!commandSent) {
-            console.log(`Failed to send sensor config command: "${command}"`);
-            continue;
-          }
-
-          // Step 2: Monitor F3 for response
-          console.log(`Monitoring F3 for sensor config response to command: "${command}"`);
-          const sensorResponse = await monitorF3ForSensorConfig(connectedDevice);
-          
-          if (sensorResponse) {
-            console.log(`Successfully received sensor config response for command: "${command}"`);
-            response = sensorResponse;
-            successfulCommand = command;
-            break;
-          }
-        } catch (error: any) {
-          console.log(`Sensor config command "${command}" failed:`, error.message);
-          continue;
+    const subscription = connectedDevice.monitorCharacteristicForService(
+      SERVICE_UUID,
+      F3_NOTIFY_UUID,
+      (error, characteristic) => {
+        if (error) {
+          console.log('F3 monitoring error (sensor config):', error);
+          clearTimeout(timeoutId);
+          subscription.remove();
+          reject(error);
+          return;
         }
-      }
 
-      if (!response) {
-        console.log('No sensor config response received from any command');
-        console.log('No Sensor Config Response: The device did not respond to any sensor config commands. Please check:\n\n1. Device is powered on\n2. Device supports sensor config commands\n3. BLE connection is stable');
-        return;
-      }
+        if (characteristic?.value) {
+          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+          console.log('Received F3 data (sensor config):', chunk);
+          responseData += chunk;
 
-      console.log(`Successful sensor config command: "${successfulCommand}"`);
-      console.log('Raw sensor config response:', response);
-      
-      // Step 3: Parse and update sensor config
-      const sensorData = parseSensorConfig(response as string);
-      
-      if (sensorData && Array.isArray(sensorData)) {
-        console.log('✅ Parsed sensor config:', sensorData);
-        
-        // Store the sensor config data
-        setSensorConfigData(sensorData);
-        
-        console.log('Sensor Data Received: Successfully fetched sensor configuration data!');
-        console.log(`Sensors found: ${sensorData.length}`);
-      } else {
-        console.log('❌ Failed to parse sensor config data');
-        // Alert.alert('Parse Error', 'Received sensor config data but could not parse it correctly.');
-      }
-      
-    } catch (error: any) {
-      console.log('❌ Error fetching sensor config:', error);
-      // Alert.alert(
-      //   'Connection Error',
-      //   `Failed to fetch sensor config: ${error.message}`,
-      //   [{ text: 'OK' }]
-      // );
-    }
-  };
+          if (responseData.includes('{') && responseData.includes('}')) {
+            const start = responseData.indexOf('{');
+            const end = responseData.indexOf('}') + 1;
+            const completeMessage = responseData.substring(start, end);
 
-  // Monitor F3 characteristic for sensor config response
-  const monitorF3ForSensorConfig = async (device: any) => {
-    return new Promise((resolve) => {
-      let notificationBuffer = '';
-      let isMonitoring = true;
-      
-      console.log('Starting sensor config monitoring...');
-      
-      const subscription = device.monitorCharacteristicForService(
-        '00000180-0000-1000-8000-00805f9b34fb',
-        '0000fff3-0000-1000-8000-00805f9b34fb',
-        (error: any, characteristic: any) => {
-          if (error) {
-            console.log('Sensor config notification error:', error.message);
-            return;
-          }
-          
-          if (characteristic && characteristic.value) {
-            try {
-              const text = Buffer.from(characteristic.value, 'base64').toString('utf8');
-              console.log('Received sensor config chunk:', text);
-              notificationBuffer += text;
-              
-              // Check for complete message
-              const start = notificationBuffer.indexOf('{');
-              const end = notificationBuffer.indexOf('}', start);
-              
-              if (start !== -1 && end !== -1) {
-                const completeMsg = notificationBuffer.substring(start, end + 1);
-                console.log('Complete sensor config message:', completeMsg);
-                
-                setRawSensorData(completeMsg);
-                parseSensorConfig(completeMsg);
-                
-                // Stop monitoring
-                if (subscription && subscription.remove) {
-                  subscription.remove();
-                }
-                resolve(completeMsg);
-              } else {
-                console.log('Incomplete message, waiting for more data...');
-              }
-            } catch (e) {
-              console.error('Error processing sensor config notification:', e);
-            }
-          } else {
-            console.log('No characteristic value received');
-          }
-        }
-      );
-      
-      // Timeout after 15 seconds (increased further)
-      setTimeout(() => {
-        if (isMonitoring) {
-          console.log('Timeout waiting for sensor config response');
-          console.log('Final buffer content:', notificationBuffer);
-          
-          // Even if timeout, try to parse what we have
-          if (notificationBuffer.length > 0) {
-            console.log('Attempting to parse incomplete data...');
-            parseSensorConfig(notificationBuffer);
-          }
-          
-          if (subscription && subscription.remove) {
+            console.log('Complete sensor config message:', completeMessage);
+            clearTimeout(timeoutId);
             subscription.remove();
+            resolve(completeMessage);
           }
-          resolve(null);
         }
-      }, 15000);
-    });
-  };
+      }
+    );
+  });
+};
+
+  
+
+  
 
   // Parse sensor configuration data with while loop for %s values
   const parseSensorConfig = (data: string) => {
@@ -5472,23 +5102,13 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                 alignItems: 'center',
                 marginBottom: 8,
               }}
-              onPress={() => {
+              onPress={async() => {
                 console.log('=== FETCH: Getting sensor data from device ===');
+                await fetchSensorData()
                 // Test with complete sensor data from your Python device
-                const testData = '{S_Name:PH,Offset:0.10,Scale:1.05,S_Name:TDS,Offset:0.20,Scale:1.10,S_Name:TPA,Offset:-0.50,Scale:0.98,S_Name:TPW,Offset:0.00,Scale:1.00,S_Name:FLW,Offset:0.15,Scale:1.02,S_Name:PSR,Offset:-0.30,Scale:0.97,S_Name:CLO,Offset:0.25,Scale:1.08,S_Name:WGT,Offset:0.05,Scale:1.00,S_Name:TBD,Offset:0.00,Scale:1.00,S_Name:UFM,Offset:0.50,Scale:0.95}';
-                console.log('Fetching sensor data:', testData);
-                parseSensorConfig(testData);
                 
-                setTimeout(() => {
-                  // Alert.alert(
-                  //   'Sensors Fetched',
-                  //   `Settings: ${Object.keys(sensorConfigData).length} sensors\n` +
-                  //   `Dashboard: ${Object.keys(sensorStates).length} sensors\n\n` +
-                  //   `Settings sensors: ${Object.keys(sensorConfigData).join(', ')}\n\n` +
-                  //   `Dashboard sensors: ${Object.keys(sensorStates).join(', ')}`,
-                  //   [{ text: 'OK' }]
-                  // );
-                }, 1000);
+                
+               
               }}
             >
               <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
@@ -6855,13 +6475,15 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   const [isLoadingSensors, setIsLoadingSensors] = useState(false);
   const [showLoadingModal, setShowLoadingModal] = useState(false);
   const spinValue = useRef(new Animated.Value(0)).current;
-
+  const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
+  const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+  const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
   // Load calibration data and device sensors on component mount
   useEffect(() => {
     loadCalibrationData();
     loadDeviceSensors();
     // Automatically fetch device sensors on mount
-    fetchDeviceSensors();
+    fetchSensorData();
   }, []);
 
   // Spinning animation effect
@@ -6995,110 +6617,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   };
 
   // Fetch fresh device sensors
-  const fetchDeviceSensors = async () => {
-    setIsLoadingSensors(true);
-    setShowLoadingModal(true);
-    try {
-      // Get device from route params
-      const { device } = route.params || {};
-      
-      if (!device) {
-        console.log('No device available, using stored sensor data');
-        setIsLoadingSensors(false);
-        return;
-      }
-
-      // Use the same fetchSensorConfig logic from SettingsScreen
-      const manager = new BleManager();
-      
-      // Always get a fresh connection to ensure it's working
-      console.log('Getting fresh connection for sensor config fetch...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-      console.log('Device connected successfully for sensor config fetch');
-
-      // Verify connection is stable
-      if (!connectedDevice || !connectedDevice.isConnected) {
-        throw new Error('Device connection failed');
-      }
-
-      // Discover services and characteristics
-      console.log('Discovering services and characteristics...');
-      await connectedDevice.discoverAllServicesAndCharacteristics();
-      console.log('Services discovered successfully for sensor config fetch');
-
-      // Try different command formats
-      const commandsToTry = [
-        '3',  // This should trigger the sensor config from Python device
-        '{$sensor_config$}',
-        '{$send_sensor_data}',
-        'sensor_config',
-        'send_sensor_data',
-        'sensors'
-      ];
-
-      let response = null;
-      let successfulCommand = null;
-
-      for (const command of commandsToTry) {
-        try {
-          console.log(`Trying sensor config command: "${command}"`);
-          
-          // Step 1: Send command to F1
-          const commandSent = await sendCommandInChunks(connectedDevice, command);
-          
-          if (!commandSent) {
-            console.log(`Failed to send sensor config command: "${command}"`);
-            continue;
-          }
-
-          // Step 2: Monitor F3 for response
-          console.log(`Monitoring F3 for sensor config response to command: "${command}"`);
-          const sensorResponse = await monitorF3ForSensorConfig(connectedDevice);
-          
-          if (sensorResponse) {
-            console.log(`Successfully received sensor config response for command: "${command}"`);
-            response = sensorResponse;
-            successfulCommand = command;
-            break;
-          }
-        } catch (error: any) {
-          console.log(`Sensor config command "${command}" failed:`, error.message);
-          continue;
-        }
-      }
-
-      if (response) {
-        console.log(`Successful sensor config command: "${successfulCommand}"`);
-        console.log('Raw sensor config response:', response);
-        
-        // Parse and update sensor config
-        const sensorData = parseSensorConfig(response as string);
-        
-        if (sensorData && typeof sensorData === 'object') {
-          console.log('✅ Parsed sensor config for calibration:', sensorData);
-          
-          // Store the sensor config data
-          setDeviceSensors(sensorData);
-          await saveToStorage('DEVICE_SENSOR_CONFIG', sensorData);
-          
-          console.log(`✅ Successfully fetched ${Object.keys(sensorData).length} device sensors for calibration`);
-        }
-      } else {
-        // If no response from device, show empty state
-        console.log('No response from device, no sensors available');
-        setDeviceSensors({});
-        await saveToStorage('DEVICE_SENSOR_CONFIG', {});
-        
-        console.log('📊 No device sensors available - connect to a device to see sensors');
-      }
-      
-    } catch (error: any) {
-      console.error('Error fetching device sensors for calibration:', error);
-    } finally {
-      setIsLoadingSensors(false);
-      setShowLoadingModal(false);
-    }
-  };
+ 
 
   // Send command in chunks (18 bytes per chunk as per Arduino code)
   const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
@@ -7113,8 +6632,8 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
         console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
         
         await device.writeCharacteristicWithoutResponseForService(
-          '00000180-0000-1000-8000-00805f9b34fb',
-          '0000fff1-0000-1000-8000-00805f9b34fb',
+          SERVICE_UUID,
+          F1_WRITE_UUID,
           base64Chunk
         );
         
@@ -7130,140 +6649,87 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     }
   };
 
-  // Monitor F3 characteristic for sensor config response
-  const monitorF3ForSensorConfig = async (device: any) => {
-    return new Promise((resolve) => {
-      let notificationBuffer = '';
-      let isMonitoring = true;
-      
-      console.log('Starting sensor config monitoring...');
-      
-      const subscription = device.monitorCharacteristicForService(
-        '00000180-0000-1000-8000-00805f9b34fb',
-        '0000fff3-0000-1000-8000-00805f9b34fb',
-        (error: any, characteristic: any) => {
-          if (error) {
-            console.log('Sensor config notification error:', error.message);
-            return;
-          }
-          
-          if (characteristic && characteristic.value) {
-            try {
-              const text = Buffer.from(characteristic.value, 'base64').toString('utf8');
-              console.log('Received sensor config chunk:', text);
-              notificationBuffer += text;
-              
-              // Check for complete message
-              const start = notificationBuffer.indexOf('{');
-              const end = notificationBuffer.indexOf('}', start);
-              
-              if (start !== -1 && end !== -1) {
-                const completeMsg = notificationBuffer.substring(start, end + 1);
-                console.log('Complete sensor config message:', completeMsg);
-                
-                // Stop monitoring
-                if (subscription && subscription.remove) {
-                  subscription.remove();
-                }
-                resolve(completeMsg);
-              } else {
-                console.log('Incomplete message, waiting for more data...');
-              }
-            } catch (e) {
-              console.error('Error processing sensor config notification:', e);
-            }
-          } else {
-            console.log('No characteristic value received');
-          }
-        }
-      );
-      
-      // Timeout after 15 seconds
-      setTimeout(() => {
-        if (isMonitoring) {
-          console.log('Timeout waiting for sensor config response');
-          console.log('Final buffer content:', notificationBuffer);
-          
-          if (subscription && subscription.remove) {
-            subscription.remove();
-          }
-          resolve(null);
-        }
-      }, 15000);
-    });
-  };
 
-  // Parse sensor configuration data
-  const parseSensorConfig = (data: string) => {
-    try {
-      console.log('Parsing sensor config data:', data);
-      
-      const sensorData: {[key: string]: {offset: number, scale: number}} = {};
-      const sensorNames: string[] = [];
-      
-      // Use while loop to find all S_Name:%s patterns
-      let currentData = data;
-      let startIndex = 0;
-      
-      while (true) {
-        // Find next S_Name: occurrence
-        const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-        if (sNameIndex === -1) break; // No more S_Name: found
-        
-        // Find the end of this sensor entry (next S_Name: or end of string)
-        const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
-        const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-        
-        // Extract this sensor entry
-        const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
-        console.log('Processing sensor entry:', sensorEntry);
-        
-        // Parse the sensor name (everything before first comma)
-        const commaIndex = sensorEntry.indexOf(',');
-        if (commaIndex !== -1) {
-          const sensorName = sensorEntry.substring(0, commaIndex).trim();
-          console.log('Found sensor name:', sensorName);
-          
-          if (sensorName) {
-            // Count how many times this sensor name appears to handle duplicates
-            const existingCount = sensorNames.filter(name => name === sensorName).length;
-            const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-            
-            sensorNames.push(uniqueSensorKey);
-            
-            // Try to extract offset and scale
-            const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-            const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-            
-            if (offsetMatch && scaleMatch) {
-              sensorData[uniqueSensorKey] = {
-                offset: parseFloat(offsetMatch[1].trim()),
-                scale: parseFloat(scaleMatch[1].trim())
-              };
-            } else {
-              // If no offset/scale, just store the name
-              sensorData[uniqueSensorKey] = {
-                offset: 0,
-                scale: 1
-              };
-            }
+  // Monitor F3 characteristic for sensor config response
+  const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    let responseData = '';
+    const timeoutId = setTimeout(() => {
+      console.log('Sensor config response timeout');
+      reject(new Error('Sensor config response timeout'));
+    }, 10000);
+
+    const subscription = connectedDevice.monitorCharacteristicForService(
+      SERVICE_UUID,
+      F3_NOTIFY_UUID,
+      (error, characteristic) => {
+        if (error) {
+          console.log('F3 monitoring error (sensor config):', error);
+          clearTimeout(timeoutId);
+          subscription.remove();
+          reject(error);
+          return;
+        }
+
+        if (characteristic?.value) {
+          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+          console.log('Received F3 data (sensor config):', chunk);
+          responseData += chunk;
+
+          if (responseData.includes('{') && responseData.includes('}')) {
+            const start = responseData.indexOf('{');
+            const end = responseData.indexOf('}') + 1;
+            const completeMessage = responseData.substring(start, end);
+
+            console.log('Complete sensor config message:', completeMessage);
+            clearTimeout(timeoutId);
+            subscription.remove();
+            resolve(completeMessage);
           }
         }
-        
-        // Move to next position
-        startIndex = sNameIndex + 7;
       }
-      
-      console.log('All found sensor names:', sensorNames);
-      console.log('Parsed sensor data:', sensorData);
-      
-      return sensorData;
-      
-    } catch (error) {
-      console.error('Error parsing sensor config:', error);
-      return {};
+    );
+  });
+};
+
+
+
+
+  // Function to parse sensor configuration data
+const parseSensorData = (rawResponse: string) => {
+  try {
+    // 1. Strip outer braces and trailing commas
+    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
+
+    // 2. Split by commas, then into key:value pairs
+    const tokens = clean.split(/,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
+
+    const sensors: any[] = [];
+    let current: any = {};
+
+    tokens.forEach(token => {
+      const [key, value] = token.split(":");
+
+      if (key === "S_Name" && Object.keys(current).length > 0) {
+        // start of new sensor → push previous
+        sensors.push(current);
+        current = {};
+      }
+
+      current[key.trim()] = value?.trim() || "";
+    });
+
+    // push last one
+    if (Object.keys(current).length > 0) {
+      sensors.push(current);
     }
-  };
+
+    return sensors;
+  } catch (err) {
+    console.error("❌ Failed to parse sensor data:", err);
+    return [];
+  }
+};
 
   // Get list of device sensors only (no dummy sensors)
   const sensors = Object.keys(deviceSensors);
@@ -7973,27 +7439,409 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
   const { device } = route.params || {};
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const[logsLoading,setLogsLoading]=useState(false)
+  const parseDeviceLogs = (rawLogs: string): string[] => {
+  try {
+    // Example: if logs are separated by newlines
+    return rawLogs.split('\n').filter(line => line.trim() !== '');
+  } catch {
+    return [];
+  }
+};
+
+
+  const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
+    try {
+      const encoded = Buffer.from(command, 'utf8');
+      console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
+      
+      for (let i = 0; i < encoded.length; i += chunkSize) {
+        const chunk = encoded.slice(i, i + chunkSize);
+        const base64Chunk = chunk.toString('base64');
+        
+        console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
+        
+        await device.writeCharacteristicWithoutResponseForService(
+          SERVICE_UUID,
+          F1_WRITE_UUID,
+          base64Chunk
+        );
+        
+        // Small delay between chunks
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      console.log('Command sent successfully in chunks');
+      return true;
+    } catch (error) {
+      console.log('Error sending command in chunks:', error);
+      return false;
+    }
+  };
+
 
   const clearLogs = () => {
     setLogs([]);
     setError('');
   };
 
+  const DEVICE_STATUS_COMMAND = '{$send_device_status}';
+  const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
+  const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+  const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+
   const addTestLog = () => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [...prev, `[${timestamp}] Test log entry added`]);
+    fetchDeviceLogs()
+    // const timestamp = new Date().toLocaleTimeString();
+    // setLogs(prev => [...prev, `[${timestamp}] Test log entry added`]);
   };
 
+  // Parse a single log entry string like "{D:2025-01-01,T:00:00:00,Server:NODE_001,...}"
+const parseLogEntry = (log: string) => {
+  // Remove outer braces
+  const trimmed = log.replace(/^{|}$/g, "");
+
+  // Split by commas
+  const parts = trimmed.split(",");
+
+  let entry: Record<string, string> = {};
+  parts.forEach((p) => {
+    const [key, value] = p.split(":");
+    if (key && value) {
+      entry[key.trim()] = value.trim();
+    }
+  });
+
+  return entry;
+};
+
+
+const monitorF3ForLogs = (device: any) => {
+  return new Promise((resolve, reject) => {
+    let buffer = '';
+    let logs: any[] = [];
+    let inactivityTimer: NodeJS.Timeout;
+    let maxTimer: NodeJS.Timeout;
+    let onceResolved = false;
+
+    const finish = (result: any) => {
+      if (onceResolved) return;
+      onceResolved = true;
+      clearTimeout(inactivityTimer);
+      clearTimeout(maxTimer);
+      try {
+        subscription.remove();
+      } catch (e) {
+        console.log("⚠️ Tried to remove subscription but it was already gone");
+      }
+      resolve(result);
+    };
+
+    const subscription = device.monitorCharacteristicForService(
+      SERVICE_UUID,
+      F3_NOTIFY_UUID,
+      (error: any, characteristic: any) => {
+        if (error) {
+          console.log('❌ Error monitoring F3 for logs:', error);
+          finish(logs.length ? logs : null);
+          return;
+        }
+
+        if (characteristic?.value) {
+          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+          console.log('📩 F3 log chunk received:', chunk);
+
+          buffer += chunk;
+
+          // Extract {...} blocks
+          let startIdx = buffer.indexOf('{');
+          let endIdx = buffer.indexOf('}', startIdx);
+          while (startIdx !== -1 && endIdx !== -1) {
+            const logEntry = buffer.substring(startIdx, endIdx + 1);
+            try {
+              const parsed = parseLogEntry(logEntry);
+              logs.push(parsed);
+            } catch (e) {
+              console.log("⚠️ Failed to parse log entry:", logEntry);
+            }
+            buffer = buffer.substring(endIdx + 1);
+            startIdx = buffer.indexOf('{');
+            endIdx = buffer.indexOf('}', startIdx);
+          }
+
+          // Reset inactivity timeout (no data for 5s → finish)
+          clearTimeout(inactivityTimer);
+          inactivityTimer = setTimeout(() => {
+            console.log('⏳ Logs collection inactivity timeout');
+            finish(logs.length ? logs : null);
+          }, 5000);
+        }
+      }
+    );
+
+    // Max timeout safety (20s)
+    maxTimer = setTimeout(() => {
+      console.log('⏰ Max logs monitoring timeout reached');
+      finish(logs.length ? logs : null);
+    }, 20000);
+  });
+};
 
 
 
 
+    const monitorF3ForDeviceConfig = async (device: any) => {
+    return new Promise((resolve) => {
+      let responseBuffer = '';
+      let timeout: NodeJS.Timeout;
+      
+      const subscription = device.monitorCharacteristicForService(
+        SERVICE_UUID,
+        F3_NOTIFY_UUID,
+        (error: any, characteristic: any) => {
+          if (error) {
+            console.log('Error monitoring F3 for config:', error);
+            clearTimeout(timeout);
+            resolve(null);
+            return;
+          }
+          
+          if (characteristic && characteristic.value) {
+            const value = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('F3 config data received:', value);
+            
+            responseBuffer += value;
+            
+            // Check if we have a complete config response (look for {...} pattern)
+            if (responseBuffer.includes('{') && responseBuffer.includes('}')) {
+              const startIndex = responseBuffer.indexOf('{');
+              const endIndex = responseBuffer.lastIndexOf('}');
+              
+              if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+                const completeResponse = responseBuffer.substring(startIndex, endIndex + 1);
+                console.log('Complete config response:', completeResponse);
+                
+                clearTimeout(timeout);
+                subscription.remove();
+                resolve(completeResponse);
+                return;
+              }
+            }
+          }
+        }
+      );
+      
+      // Set timeout for config response
+      timeout = setTimeout(() => {
+        console.log('Timeout waiting for device config response');
+        subscription.remove();
+        resolve(null);
+      }, 10000); // 10 second timeout
+    });
+  };
+
+  const fetchDeviceLogs = async () => {
+  if (!device) {
+    console.log('❌ No device available for log fetch');
+    return;
+  }
+  setLogsLoading(true)
+  console.log('=== STARTING DEVICE LOG FETCH ===');
+  try {
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+    console.log('✅ Device connected for log fetch');
+
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log('✅ Services discovered for log fetch');
+
+    const commandsToTry = ['send_logs', '{$send_logs}', 'logs'];
+    let response: any = null;
+
+    for (const command of commandsToTry) {
+      console.log(`➡ Sending log command: "${command}"`);
+      await sendCommandInChunks(connectedDevice, command);
+
+      response = await monitorF3ForLogs(connectedDevice);
+      if (response && response.length > 0) {
+        console.log(`✅ Logs received for command: "${command}"`);
+        break;
+      }
+    }
+
+    if (response && response.length > 0) {
+      console.log("✅ Parsed logs:", response);
+      setLogs((prev) => [...prev, ...response]);
+    } else {
+      console.log("❌ No logs received from device");
+    }
+  } catch (error) {
+    console.log('❌ Error fetching logs:', error);
+  }
+  console.log('=== DEVICE LOG FETCH COMPLETED ===');
+  setLogsLoading(false)
+};
 
 
+const exportLogsToExcel = async () => {
+    try {
+      if (!logs || logs.length === 0) {
+        alert("No logs available to export");
+        return;
+      }
 
+      // Convert logs to worksheet
+      const ws = XLSX.utils.json_to_sheet(logs);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Logs");
 
+      // Write file as base64
+      const wbout = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
 
+      // Define file path
+      const filePath = `${RNFS.DownloadDirectoryPath}/logs_${Date.now()}.xlsx`;
 
+      // Save file
+      await RNFS.writeFile(filePath, wbout, 'base64');
+
+      alert(`Logs exported successfully:\n${filePath}`);
+    } catch (error) {
+      console.error("Error exporting logs:", error);
+      alert("Failed to export logs");
+    }
+  };
+
+const DeviceLogsLoading = () => (
+    <View style={{
+      flex: 1,
+      backgroundColor: theme.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    }}>
+      <StatusBar 
+        backgroundColor={theme.statusBarBg} 
+        barStyle={theme.statusBar} 
+        translucent={true}
+      />
+      
+      {/* Header */}
+      <View style={{ 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        backgroundColor: theme.primary, 
+        padding: scale(16),
+        paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
+        elevation: 4,
+        shadowColor: theme.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+      }}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={{
+            width: scale(40),
+            height: scale(40),
+            borderRadius: scale(20),
+            backgroundColor: theme.overlayLight,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ color: theme.text, fontSize: scaleFont(24), fontWeight: 'bold' }}>‹</Text>
+        </TouchableOpacity>
+        <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>Device Logs</Text>
+      </View>
+
+      {/* Loading Content */}
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingTop: 100,
+      }}>
+        <View style={{
+          width: 120,
+          height: 120,
+          borderRadius: 60,
+          backgroundColor: theme.primary,
+          justifyContent: 'center',
+          alignItems: 'center',
+          elevation: 8,
+          shadowColor: theme.shadow,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+          marginBottom: 30,
+        }}>
+          <ActivityIndicator size="large" color="#fff" />
+        </View>
+        
+        <Text style={{
+          fontSize: scaleFont(24),
+          fontWeight: 'bold',
+          color: theme.text,
+          marginBottom: 10,
+          textAlign: 'center',
+        }}>
+          Fetching Device Logs
+        </Text>
+        
+        <Text style={{
+          fontSize: scaleFont(16),
+          color: theme.textSecondary,
+          textAlign: 'center',
+          marginBottom: 20,
+          lineHeight: 24,
+        }}>
+          Connecting to device and retrieving real-time logs ...
+        </Text>
+        
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: theme.surface,
+          paddingHorizontal: 20,
+          paddingVertical: 15,
+          borderRadius: 12,
+          elevation: 2,
+          shadowColor: theme.shadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        }}>
+          <Icon name="bluetooth" size={20} color={theme.primary} />
+          <Text style={{
+            fontSize: scaleFont(14),
+            color: theme.textSecondary,
+            marginLeft: 10,
+          }}>
+            Communicating with {device?.name || 'Device'}
+          </Text>
+        </View>
+        
+        <Text style={{
+          fontSize: scaleFont(12),
+          color: theme.textTertiary,
+          textAlign: 'center',
+          marginTop: 20,
+          fontStyle: 'italic',
+        }}>
+          Please wait 5-10 seconds for data retrieval
+        </Text>
+      </View>
+    </View>
+  );
+
+  // Show loading screen if fetching device data
+  if (logsLoading) {
+    return <DeviceLogsLoading />;
+  }
   return (
     <View style={{ 
       flex: 1, 
@@ -8140,7 +7988,7 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
               fontSize: 16,
               fontWeight: 'bold',
             }}>
-              Add Test Log
+              Fetch Logs
             </Text>
           </View>
         </TouchableOpacity>
@@ -8450,27 +8298,14 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
               </View>
             ) : (
               logs.map((log, index) => (
-                <View 
-                  key={index}
-                  style={{
-                    backgroundColor: theme.isDark ? '#2a2a2a' : '#f8f9fa',
-                    padding: 12,
-                    borderRadius: 8,
-                    marginBottom: 8,
-                    borderLeftWidth: 4,
-                    borderLeftColor: '#00bcd4',
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 12,
-                    color: theme.textSecondary,
-                    fontFamily: 'monospace',
-                    lineHeight: 16,
-                  }}>
-                    {log}
-                  </Text>
-                </View>
-              ))
+  <View key={index} style={{ marginBottom: 10, padding: 8, backgroundColor: "#f9f9f9", borderRadius: 6 }}>
+    {Object.entries(log).map(([key, value]) => (
+      <Text key={key} style={{ fontSize: 14 }}>
+        {key}: {String(value)}
+      </Text>
+    ))}
+  </View>
+))
             )}
           </ScrollView>
         </View>
@@ -8495,9 +8330,9 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
             shadowOpacity: 0.3,
             shadowRadius: 8,
           }}
-          onPress={() => navigation.navigate('FullScreenLogs', { logs: logs })}
+          onPress={exportLogsToExcel}
         >
-          <Icon name="fullscreen" size={24} color="#fff" />
+          <Icon name="download" size={24} color="#fff" />
         </TouchableOpacity>
       )}
     </View>
