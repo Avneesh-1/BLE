@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, PermissionsAndroid, Platform, Alert, ActivityIndicator, TextInput, ScrollView, Dimensions, StatusBar, Animated, Appearance, Image } from 'react-native';
+import { View, Text, FlatList,Switch, TouchableOpacity, StyleSheet, SafeAreaView, PermissionsAndroid, Platform, Alert, ActivityIndicator, TextInput, ScrollView, Dimensions, StatusBar, Animated, Appearance, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Easing } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
@@ -196,6 +196,8 @@ export const darkTheme = {
 // Storage keys for persistent settings
 const STORAGE_KEYS = {
   SENSOR_STATES: 'sensor_states',
+  DATA_FREQUENCY:'data_freequency',
+  GPIO_ENABLED:'gpio_enabled',
   SERVER_SITE_NAME: 'server_site_name',
   SELECTED_SIM: 'selected_sim',
   SELECTED_SENSOR: 'selected_sensor',
@@ -207,16 +209,20 @@ const STORAGE_KEYS = {
 
 // Default sensor states - will be dynamically populated from device data
 const DEFAULT_SENSOR_STATES = {
-  'PH': true,
+  'pH': true,
   'TDS': true,
-  'TPA': false,
-  'TPW': true,
-  'FLW': false,
-  'PSR': true,
-  'CLO': true,
-  'WGT': false,
-  'TBD': true,
-  'UFM': true
+  'TempA': true,
+  'TempW': true,
+  'Flow Sensor': true,
+  'Pressure Sensor': true,
+  'Chlorine Sensor': true,
+  'Weight Sensor': true,
+  'Turbidity': true,
+  'Switch 1': true,
+    'Switch 2': true,
+      'Ultrasonic Flow': true,
+      'Ultrasonic Flow2UFM2': true,
+
 };
 
 
@@ -1129,6 +1135,8 @@ const [deviceConfigData, setDeviceConfigData] = useState({
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
   const drawerAnimation = useRef(new Animated.Value(0)).current;
   const [serverSiteName, setServerSiteName] = useState('Site-001');
+    const [gpio_enabled, set_gpio_enabled] = useState(0);
+    const[dataFreequncy,setDataFreequency]=useState(0)
   // Drawer animation functions
   const openDrawer = () => {
     setShowSettingsDrawer(true);
@@ -1738,6 +1746,8 @@ const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null>
 
     const dataFreq = configData.data_freq || configData.data_frequency || '';
     if (dataFreq) {
+      setDataFreequency(dataFreq)
+      saveToStorage(STORAGE_KEYS.DATA_FREQUENCY,dataFreequncy)
       console.log('Device data frequency extracted:', dataFreq);
     }
 
@@ -1757,6 +1767,8 @@ const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null>
 
     const gpioEnabled = configData.gpio_extender_enabled || '0';
     if (gpioEnabled) {
+      saveToStorage(STORAGE_KEYS.GPIO_ENABLED,gpioEnabled)
+      set_gpio_enabled(gpioEnabled)
       console.log('Device GPIO extender status extracted:', gpioEnabled);
     }
 
@@ -1823,6 +1835,7 @@ const fetchSensorData = async () => {
     if (sensorData) {
       console.log("✅ Parsed sensordata:", sensorData);
       setSensorConfigData(sensorData); // store in state
+      await saveToStorage('sensor_config_data',parseSensorConfigForCalliberation(response))
     } else {
       console.log("❌ Failed to parse config response");
     }
@@ -1849,8 +1862,207 @@ const fetchSensorData = async () => {
   }
 };
 
+const parseSensorConfigForCalliberation = (data: string) => {
+  try {
+    console.log('Parsing sensor config data:', data);
 
+    // Remove { } wrapper
+    const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+    console.log('Cleaned sensor config data:', cleanData);
 
+    const sensorData: {
+      [key: string]: {
+        key: string;
+        offset: number;
+        scale: number;
+        is_en: number;
+        val: number;
+        rs485: boolean;
+        response: string;
+      };
+    } = {};
+    const sensorNames: string[] = []; // Array to store just the sensor names
+
+    // Use while loop to find all S_Name:%s patterns
+    let currentData = cleanData;
+    let startIndex = 0;
+
+    while (true) {
+      // Find next S_Name: occurrence
+      const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+      if (sNameIndex === -1) break; // No more S_Name: found
+
+      // Find the end of this sensor entry (next S_Name: or end of string)
+      const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+      const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+
+      // Extract this sensor entry
+      const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+      console.log('Processing sensor entry:', sensorEntry);
+
+      try {
+        // Parse the sensor name (everything before first comma)
+        const commaIndex = sensorEntry.indexOf(',');
+        if (commaIndex === -1) {
+          console.log('Skipping sensor entry with no comma');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        const sensorName = sensorEntry.substring(0, commaIndex).trim();
+        console.log('Found sensor name:', sensorName);
+
+        // Skip entries with empty S_Name
+        if (!sensorName) {
+          console.log('Skipping sensor entry with empty S_Name');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        // Parse the key (Key:<value>)
+        const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+        const key = keyMatch ? keyMatch[1].trim() : '';
+
+        // Skip entries with empty Key
+        if (!key) {
+          console.log('Skipping sensor entry with empty Key');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        // Handle duplicate sensor names
+        const existingCount = sensorNames.filter(name => name === sensorName).length;
+        const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
+        sensorNames.push(uniqueSensorKey);
+
+        // Extract other fields
+        const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+        const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+        const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
+        const valMatch = sensorEntry.match(/Val:([^,}]+)/);
+        const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
+        const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+
+        sensorData[uniqueSensorKey] = {
+          key,
+          offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
+          scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
+          is_en: parseFloat(isEnMatch[1]),
+          val: valMatch ? parseFloat(valMatch[1]) : 0,
+          rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
+          response: responseMatch ? responseMatch[1] : 'Unknown',
+        };
+
+        console.log(
+          `Parsed sensor: ${uniqueSensorKey}, Key: ${sensorData[uniqueSensorKey].key}, Offset: ${
+            sensorData[uniqueSensorKey].offset
+          }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${
+            sensorData[uniqueSensorKey].is_en
+          }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${
+            sensorData[uniqueSensorKey].rs485
+          }, Response: ${sensorData[uniqueSensorKey].response}`
+        );
+      } catch (sensorError) {
+        console.log('Error parsing individual sensor:', sensorError);
+      }
+
+      // Move to next position
+      startIndex = sNameIndex + 7;
+    }
+
+    console.log('Final parsed sensor config:', sensorData);
+    return sensorData;
+  } catch (error) {
+    console.log('Error parsing sensor config:', error);
+    return {};
+  }
+};
+// const parseSensorConfigForCalliberation = (data: string) => {
+//     try {
+//       console.log('Parsing sensor config data:', data);
+      
+//       // Remove { } wrapper
+//       const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+//       console.log('Cleaned sensor config data:', cleanData);
+      
+//       const sensorData: any = {};
+//       const sensorNames: string[] = []; // Array to store just the sensor names
+      
+//       // Use while loop to find all S_Name:%s patterns
+//       let currentData = cleanData;
+//       let startIndex = 0;
+      
+//       while (true) {
+//         // Find next S_Name: occurrence
+//         const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+//         if (sNameIndex === -1) break; // No more S_Name: found
+        
+//         // Find the end of this sensor entry (next S_Name: or end of string)
+//         const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+//         const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+        
+//         // Extract this sensor entry
+//         const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+//         console.log('Processing sensor entry:', sensorEntry);
+        
+//         try {
+//           // Parse the sensor name (everything before first comma)
+//           const commaIndex = sensorEntry.indexOf(',');
+//           if (commaIndex !== -1) {
+//             const sensorName = sensorEntry.substring(0, commaIndex).trim();
+//             console.log('Found sensor name:', sensorName);
+            
+//             if (sensorName) {
+//               // Count how many times this sensor name appears to handle duplicates
+//               const existingCount = sensorNames.filter(name => name === sensorName).length;
+//               const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
+              
+//               sensorNames.push(uniqueSensorKey);
+              
+//               // Try to extract offset and scale
+//               const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+//               const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+//               const is_enMatch=sensorEntry.match(/is_en:([^,}]+)/)
+//               if (offsetMatch && scaleMatch) {
+//                 const offset = parseFloat(offsetMatch[1]);
+//                 const scale = parseFloat(scaleMatch[1]);
+//                 const isEnabled=parseFloat(is_enMatch[1]);
+//                 sensorData[uniqueSensorKey] = {
+//                   name: uniqueSensorKey,
+//                   offset: offset,
+//                   scale: scale,
+//                   is_en:isEnabled
+//                 };
+                
+//                 console.log(`Parsed sensor: ${uniqueSensorKey}, Offset: ${offset}, Scale: ${scale}`);
+//               } else {
+//                 // If no offset/scale, just store the name
+//                 sensorData[uniqueSensorKey] = {
+//                   name: uniqueSensorKey,
+//                   offset: 0,
+//                   scale: 1
+//                 };
+//               }
+//             }
+//           }
+//         } catch (sensorError) {
+//           console.log('Error parsing individual sensor:', sensorError);
+//         }
+        
+//         // Move to next position
+//         startIndex = sNameIndex + 7;
+//       }
+      
+//       // Update the sensor states with actual sensor names from device
+    
+      
+//       console.log('Final parsed sensor config:', sensorData);
+//       return sensorData;
+//     } catch (error) {
+//       console.log('Error parsing sensor config:', error);
+//       return null;
+//     }
+//   };
 
   // Function to monitor F3 for sensor config response
 const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
@@ -1904,7 +2116,7 @@ const parseSensorData = (rawResponse: string) => {
     let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
 
     // 2. Split by commas, then into key:value pairs
-    const tokens = clean.split(/,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
+    const tokens = clean.split(/,(?=S_Name:|Key:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
 
     const sensors: any[] = [];
     let current: any = {};
@@ -2741,7 +2953,11 @@ const parseSensorData = (rawResponse: string) => {
                     selectedDateFormat,
                     setSelectedDateFormat,
                     sensorStates,
-                    setSensorStates
+                    setSensorStates,
+                    gpio_enabled,
+                    set_gpio_enabled,
+                    dataFreequncy,
+                    setDataFreequency
                   });
                 }}
                 activeOpacity={0.8}
@@ -3672,7 +3888,7 @@ const parseSensorData = (rawResponse: string) => {
                 GSM Post {deviceStatusData.gsmPostStatus.toUpperCase()}
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+            {/* <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
               <View style={{
                 width: 8,
                 height: 8,
@@ -3691,7 +3907,7 @@ const parseSensorData = (rawResponse: string) => {
                 marginRight: 6,
               }} />
               <Text style={{ fontSize: 12, color: '#f44336', fontWeight: 'bold' }}>RS485-2 OFF</Text>
-            </View>
+            </View> */}
 
           </View>
         </View>
@@ -3720,7 +3936,7 @@ const parseSensorData = (rawResponse: string) => {
               <Icon name="chart-line" size={20} color="#4CAF50" />
             </View>
             <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
-              Live Sensor Data
+              Device Configs
             </Text>
           </View>
           
@@ -3741,6 +3957,19 @@ const parseSensorData = (rawResponse: string) => {
                 {deviceStatusData.deviceTime}
               </Text>
             </View>
+          </View>
+
+
+          <View style={{ marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ fontSize: 14, color: '#666' }}>
+                <Text style={{ fontWeight: 'bold' }}>Data Freequency:</Text>
+            </Text>
+            <Text style={{ fontSize: 14, color: '#333', fontWeight: 'bold' }}>
+                {dataFreequncy} minutes
+            </Text>
+            </View>
+           
           </View>
           
 
@@ -3796,10 +4025,9 @@ const parseSensorData = (rawResponse: string) => {
       Active Sensors
     </Text>
   </View>
-
   {sensorConfigData && sensorConfigData.length > 0 ? (
     sensorConfigData
-      .filter(sensor => sensor.is_en === "Yes") // only enabled
+      .filter(sensor => sensor.is_en ) // only enabled
       .map((sensor, index, filteredArray) => (
         <View key={sensor.S_Name || index} style={{ 
           flexDirection: 'row', 
@@ -4064,6 +4292,7 @@ const parseSensorData = (rawResponse: string) => {
   );
 }
 
+
 function SettingsScreen({ navigation, route }: { navigation: any; route: any }) {
   const { currentTime } = useTimer();
   
@@ -4079,6 +4308,10 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     setSelectedDateFormat: setParentSelectedDateFormat,
     sensorStates: initialSensorStates,
     setSensorStates: setParentSensorStates,
+    setDataFreequency,
+    dataFreequncy: initialDataFreequency,
+    gpio_enabled: initial_gpio_enabled,
+    set_gpio_enabled,
     device
   } = route.params || {};
   const [serverSiteName, setLocalServerSiteName] = useState(initialServerSiteName || 'Site-001');
@@ -4087,6 +4320,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const [selectedDateFormat, setLocalSelectedDateFormat] = useState(initialSelectedDateFormat || 'DD/MM/YYYY HH:mm:ss');
   const [sensorStates, setLocalSensorStates] = useState(initialSensorStates || DEFAULT_SENSOR_STATES);
   const [showSimDropdown, setShowSimDropdown] = useState(false);
+  const [gpio_enabled, set_local_gpio_enabled] = useState(initial_gpio_enabled || 0);
+  const [dataFreequency, setLocalDataFreequency] = useState(initialDataFreequency || 0);
   const [showSensorDropdown, setShowSensorDropdown] = useState(false);
   const [showDateFormatDropdown, setShowDateFormatDropdown] = useState(false);
   const [showDataFrequencyDropdown, setShowDataFrequencyDropdown] = useState(false);
@@ -4097,23 +4332,19 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
   const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+
   // Load persistent settings on component mount
   useEffect(() => {
     const loadPersistentSettings = async () => {
       console.log('Loading settings from device and local storage...');
       
       // First, try to get fresh data from device if available
-      const { device } = route.params || {};
       if (device && device.connectedDevice && device.isConnected) {
         try {
           console.log('Device is connected, fetching fresh settings from device...');
           
-          // Fetch fresh device configuration
           const connectedDevice = device.connectedDevice;
           await connectedDevice.discoverAllServicesAndCharacteristics();
-          
-          // Send command to get device config
-         
           
           const configCommand = '{$send_device_config}';
           const encoded = Buffer.from(configCommand, 'utf8');
@@ -4145,6 +4376,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       const savedSelectedSim = await loadFromStorage(STORAGE_KEYS.SELECTED_SIM, 'Jio');
       const savedSelectedSensor = await loadFromStorage(STORAGE_KEYS.SELECTED_SENSOR, 'Chlorine level');
       const savedSelectedDateFormat = await loadFromStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, 'DD/MM/YYYY HH:mm:ss');
+      const savedDataFreequency = await loadFromStorage(STORAGE_KEYS.DATA_FREQUENCY, 0);
+      const savedGpioEnabled = await loadFromStorage(STORAGE_KEYS.GPIO_ENABLED, 0);
 
       console.log('Settings: Loaded sensor config data from storage:', Object.keys(savedSensorConfigData).length, 'sensors');
       console.log('Settings: Loaded sensor states from storage:', Object.keys(savedSensorStates).length, 'sensors');
@@ -4155,10 +4388,32 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       setLocalSelectedSensor(savedSelectedSensor);
       setLocalSelectedDateFormat(savedSelectedDateFormat);
       setSensorConfigData(savedSensorConfigData);
+      setLocalDataFreequency(savedDataFreequency);
+      set_local_gpio_enabled(savedGpioEnabled);
     };
 
     loadPersistentSettings();
   }, []);
+
+  // Handle GPIO enabled toggle
+  const handleGpioEnabledToggle = async (value: boolean) => {
+    const newValue = value ? 1 : 0;
+    set_local_gpio_enabled(newValue);
+    await saveToStorage(STORAGE_KEYS.GPIO_ENABLED, newValue);
+    if (set_gpio_enabled) {
+      set_gpio_enabled(newValue);
+    }
+  };
+
+  // Update data frequency and save to storage
+  const handleDataFrequencyChange = async () => {
+    const newDataFreq = calculateDataFrequency();
+    setLocalDataFreequency(newDataFreq);
+    await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, newDataFreq);
+    if (setDataFreequency) {
+      setDataFreequency(newDataFreq);
+    }
+  };
 
   // Update the parent component when server site name changes
   const handleServerSiteNameChange = async (newName: string) => {
@@ -4168,14 +4423,12 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       setServerSiteName(newName);
     }
     
-    // Send the new server site name to the device
     await sendServerSiteNameToDevice(newName);
   };
 
   // Send server site name to device
   const sendServerSiteNameToDevice = async (siteName: string) => {
     try {
-      // Get the device from route params if available
       const { device } = route.params || {};
       if (!device) {
         console.log('No device available to send server site name');
@@ -4184,7 +4437,6 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
 
       console.log('Sending server site name to device:', siteName);
       
-      // Connect to device if not already connected
       let connectedDevice = device.connectedDevice;
       if (!connectedDevice) {
         try {
@@ -4196,12 +4448,10 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         }
       }
 
-      // Discover services and characteristics
       await connectedDevice.discoverAllServicesAndCharacteristics();
       
-      // Send command to update server site name - try different command formats based on Arduino code
       const commands = [
-        `{$set_server_site:${siteName}}`,
+        `{$device_config${siteName}}`,
         `{$set_server_site_name:${siteName}}`,
         `{$update_server_site:${siteName}}`,
         `{$update_server_site_name:${siteName}}`,
@@ -4256,12 +4506,44 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     }
   };
 
+  const sendTimeSyncCommand = async () => {
+    try {
+      const { device } = route.params || {};
+      if (!device) {
+        console.log('No device available for sending time sync command');
+        Alert.alert('Error', 'No device available for sending time sync command.');
+        return false;
+      }
+
+      console.log('=== SENDING TIME SYNC COMMAND TO DEVICE ===');
+      const timestamp = Math.floor(Date.now() / 1000);
+      const command = `{$time_sync$${timestamp}}`;
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+
+      const commandSent = await sendCommandInChunks(connectedDevice, command);
+
+      if (commandSent) {
+        console.log('✅ Time sync command sent successfully:', command);
+        Alert.alert('Success', 'Time sync command sent successfully.');
+        return true;
+      } else {
+        console.log('❌ Failed to send time sync command');
+        Alert.alert('Error', 'Failed to send time sync command. Please try again.');
+        return false;
+      }
+    } catch (error: any) {
+      console.error('Error sending time sync command:', error);
+      Alert.alert('Error', 'An error occurred while sending time sync command.');
+      return false;
+    }
+  };
+
   // Update the parent component when sensor states change
   const handleSensorStateChange = async (sensorName, isEnabled) => {
     const newSensorStates = { ...sensorStates, [sensorName]: isEnabled };
     setLocalSensorStates(newSensorStates);
     
-    // Save to persistent storage
     await saveToStorage(STORAGE_KEYS.SENSOR_STATES, newSensorStates);
     
     if (setParentSensorStates) {
@@ -4272,7 +4554,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   // Update the parent component when date format changes
   const handleDateFormatChange = async (newFormat) => {
     setLocalSelectedDateFormat(newFormat);
-    globalDateFormat = newFormat; // Update global format
+    globalDateFormat = newFormat;
     await saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, newFormat);
     if (setParentSelectedDateFormat) {
       setParentSelectedDateFormat(newFormat);
@@ -4281,10 +4563,10 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
 
   // Calculate data frequency in seconds
   const calculateDataFrequency = () => {
-    return (selectedHours * 3600) + (selectedMinutes * 60);
+    return (selectedHours * 60) +  selectedMinutes ;
   };
 
-  // Send command in chunks (18 bytes per chunk as per Arduino code)
+  // Send command in chunks
   const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
     try {
       const encoded = Buffer.from(command, 'utf8');
@@ -4302,7 +4584,6 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
           base64Chunk
         );
         
-        // Small delay between chunks
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       
@@ -4313,171 +4594,152 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       return false;
     }
   };
-const parseSensorDataToConfig = (rawResponse: string): {
-  [key: string]: { offset: string; scale: string };
-} => {
-  try {
-    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
 
-    const tokens = clean.split(
-      /,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/
-    );
+  const parseSensorDataToConfig = (rawResponse: string): {
+    [key: string]: { offset: string; scale: string };
+  } => {
+    try {
+      let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
+      const tokens = clean.split(
+        /,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/
+      );
+      const sensors: { [key: string]: { offset: string; scale: string } } = {};
+      let current: any = {};
 
-    const sensors: { [key: string]: { offset: string; scale: string } } = {};
-    let current: any = {};
+      tokens.forEach(token => {
+        const [key, value] = token.split(":");
+        if (key === "S_Name" && Object.keys(current).length > 0) {
+          const name = current["S_Name"] || `Sensor_${Object.keys(sensors).length + 1}`;
+          sensors[name] = {
+            offset: current["Offset"] || "",
+            scale: current["Scale"] || ""
+          };
+          current = {};
+        }
+        current[key.trim()] = value?.trim() || "";
+      });
 
-    tokens.forEach(token => {
-      const [key, value] = token.split(":");
-
-      if (key === "S_Name" && Object.keys(current).length > 0) {
+      if (Object.keys(current).length > 0) {
         const name = current["S_Name"] || `Sensor_${Object.keys(sensors).length + 1}`;
         sensors[name] = {
           offset: current["Offset"] || "",
           scale: current["Scale"] || ""
         };
-        current = {};
       }
 
-      current[key.trim()] = value?.trim() || "";
-    });
-
-    // push last one
-    if (Object.keys(current).length > 0) {
-      const name = current["S_Name"] || `Sensor_${Object.keys(sensors).length + 1}`;
-      sensors[name] = {
-        offset: current["Offset"] || "",
-        scale: current["Scale"] || ""
-      };
+      return sensors;
+    } catch (err) {
+      console.error("❌ Failed to parse sensor config:", err);
+      return {};
     }
+  };
 
-    return sensors;
-  } catch (err) {
-    console.error("❌ Failed to parse sensor config:", err);
-    return {};
-  }
-};
-
-
-
- const fetchSensorData = async () => {
-  if (!device) {
-    console.log('❌ No device available');
-    return;
-  }
-
-
-
-  console.log('🚀 Starting sensor data fetch...');
-
-  try {
-    // Cancel old connection
-    try {
-      await manager.cancelDeviceConnection(device.id);
-      await new Promise(res => setTimeout(res, 500));
-    } catch {
-      // ignore cancel errors
-    }
-
-    // Connect
-    console.log('🔌 Connecting to device...');
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log('✅ Device connected & services discovered');
-
-    // Commands to try
-    const commands = ['{$send_sensor_data}'];
-    let response: string | null = null;
-    let successfulCommand: string | null = null;
-
-    for (const cmd of commands) {
-      try {
-        console.log(`➡️ Sending command: ${cmd}`);
-        await sendCommandInChunks(connectedDevice, cmd);
-
-        response = await monitorF3ForSensorConfig(connectedDevice);
-        if (response) {
-          console.log(`✅ Got response for: ${cmd}`);
-          successfulCommand = cmd;
-        const sensorData = parseSensorDataToConfig(response);
-    if (sensorData) {
-      console.log("✅ Parsed sensordata:", sensorData);
-      setSensorConfigData(sensorData); // store in state
-      console.log("_____-------------------]]]]]]]][[[[[[",sensorConfigData)
-    } else {
-      console.log("❌ Failed to parse config response");
-    }
-          break;
-        }
-      } catch (err: any) {
-        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
-      }
-    }
-
-    if (!response) {
-      console.log('❌ No sensor data response received from device');
+  const fetchSensorData = async () => {
+    if (!device) {
+      console.log('❌ No device available');
       return;
     }
 
-    console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
-    return response;
+    console.log('🚀 Starting sensor data fetch...');
 
-  } catch (err: any) {
-    console.log('❌ Error fetching sensor config:', err.message);
-    throw err;
-  } finally {
-  
-  }
-};
+    try {
+      try {
+        await manager.cancelDeviceConnection(device.id);
+        await new Promise(res => setTimeout(res, 500));
+      } catch {
+        // ignore cancel errors
+      }
 
+      console.log('🔌 Connecting to device...');
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Device connected & services discovered');
 
+      const commands = ['{$send_sensor_data}'];
+      let response: string | null = null;
+      let successfulCommand: string | null = null;
 
-  // Function to monitor F3 for sensor config response
-const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    let responseData = '';
-    const timeoutId = setTimeout(() => {
-      console.log('Sensor config response timeout');
-      reject(new Error('Sensor config response timeout'));
-    }, 10000);
+      for (const cmd of commands) {
+        try {
+          console.log(`➡️ Sending command: ${cmd}`);
+          await sendCommandInChunks(connectedDevice, cmd);
 
-    const subscription = connectedDevice.monitorCharacteristicForService(
-      SERVICE_UUID,
-      F3_NOTIFY_UUID,
-      (error, characteristic) => {
-        if (error) {
-          console.log('F3 monitoring error (sensor config):', error);
-          clearTimeout(timeoutId);
-          subscription.remove();
-          reject(error);
-          return;
-        }
-
-        if (characteristic?.value) {
-          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
-          console.log('Received F3 data (sensor config):', chunk);
-          responseData += chunk;
-
-          if (responseData.includes('{') && responseData.includes('}')) {
-            const start = responseData.indexOf('{');
-            const end = responseData.indexOf('}') + 1;
-            const completeMessage = responseData.substring(start, end);
-
-            console.log('Complete sensor config message:', completeMessage);
-            clearTimeout(timeoutId);
-            subscription.remove();
-            resolve(completeMessage);
+          response = await monitorF3ForSensorConfig(connectedDevice);
+          if (response) {
+            console.log(`✅ Got response for: ${cmd}`);
+            successfulCommand = cmd;
+            const sensorData = parseSensorDataToConfig(response);
+            if (sensorData) {
+              console.log("✅ Parsed sensordata:", sensorData);
+              setSensorConfigData(sensorData);
+              console.log("_____-------------------]]]]]]]][[[[[[", sensorConfigData);
+            } else {
+              console.log("❌ Failed to parse config response");
+            }
+            break;
           }
+        } catch (err: any) {
+          console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
         }
       }
-    );
-  });
-};
 
-  
+      if (!response) {
+        console.log('❌ No sensor data response received from device');
+        return;
+      }
 
-  
+      console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
+      return response;
 
-  // Parse sensor configuration data with while loop for %s values
+    } catch (err: any) {
+      console.log('❌ Error fetching sensor config:', err.message);
+      throw err;
+    } finally {
+      // cleanup logic if needed
+    }
+  };
+
+  const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      let responseData = '';
+      const timeoutId = setTimeout(() => {
+        console.log('Sensor config response timeout');
+        reject(new Error('Sensor config response timeout'));
+      }, 10000);
+
+      const subscription = connectedDevice.monitorCharacteristicForService(
+        SERVICE_UUID,
+        F3_NOTIFY_UUID,
+        (error, characteristic) => {
+          if (error) {
+            console.log('F3 monitoring error (sensor config):', error);
+            clearTimeout(timeoutId);
+            subscription.remove();
+            reject(error);
+            return;
+          }
+
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('Received F3 data (sensor config):', chunk);
+            responseData += chunk;
+
+            if (responseData.includes('{') && responseData.includes('}')) {
+              const start = responseData.indexOf('{');
+              const end = responseData.indexOf('}') + 1;
+              const completeMessage = responseData.substring(start, end);
+
+              console.log('Complete sensor config message:', completeMessage);
+              clearTimeout(timeoutId);
+              subscription.remove();
+              resolve(completeMessage);
+            }
+          }
+        }
+      );
+    });
+  };
+
   const parseSensorConfig = (data: string) => {
     try {
       console.log('Parsing sensor config data:', data);
@@ -4485,37 +4747,30 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
       const sensorData: {[key: string]: {offset: string, scale: string}} = {};
       const sensorNames: string[] = [];
       
-      // Use while loop to find all S_Name:%s patterns
       let currentData = data;
       let startIndex = 0;
       
       while (true) {
-        // Find next S_Name: occurrence
         const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-        if (sNameIndex === -1) break; // No more S_Name: found
+        if (sNameIndex === -1) break;
         
-        // Find the end of this sensor entry (next S_Name: or end of string)
         const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
         const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
         
-        // Extract this sensor entry
         const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
         console.log('Processing sensor entry:', sensorEntry);
         
-        // Parse the sensor name (everything before first comma)
         const commaIndex = sensorEntry.indexOf(',');
         if (commaIndex !== -1) {
           const sensorName = sensorEntry.substring(0, commaIndex).trim();
           console.log('Found sensor name:', sensorName);
           
           if (sensorName) {
-            // Count how many times this sensor name appears to handle duplicates
             const existingCount = sensorNames.filter(name => name === sensorName).length;
             const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
             
             sensorNames.push(uniqueSensorKey);
             
-            // Try to extract offset and scale
             const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
             const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
             
@@ -4525,7 +4780,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                 scale: scaleMatch[1].trim()
               };
             } else {
-              // If no offset/scale, just store the name
               sensorData[uniqueSensorKey] = {
                 offset: '0',
                 scale: '1'
@@ -4534,7 +4788,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
           }
         }
         
-        // Move to next position
         startIndex = sNameIndex + 7;
       }
       
@@ -4542,40 +4795,25 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
       console.log('Parsed sensor data:', sensorData);
       setSensorConfigData(sensorData);
       
-      // Dynamically update sensor states with device sensor names
       const newSensorStates: {[key: string]: boolean} = {};
       sensorNames.forEach(sensorName => {
-        // Keep existing state if sensor already exists, otherwise enable by default
         newSensorStates[sensorName] = sensorStates[sensorName] !== undefined ? sensorStates[sensorName] : true;
       });
       
-      // Save to storage and update state
       setLocalSensorStates(newSensorStates);
       saveToStorage(STORAGE_KEYS.SENSOR_STATES, newSensorStates);
       
-      // Also save sensor config data to storage for synchronization
       saveToStorage('sensor_config_data', sensorData);
       
       console.log('Dynamically updated sensor states:', newSensorStates);
-      
-      // Show alert with found sensors for debugging
-      // if (sensorNames.length > 0) {
-      //   Alert.alert(
-      //     'Sensors Found',
-      //     `Found ${sensorNames.length} sensors:\n${sensorNames.join(', ')}`,
-      //     [{ text: 'OK' }]
-      //   );
-      // }
       
     } catch (error) {
       console.error('Error parsing sensor config:', error);
     }
   };
 
-  // Send complete device configuration to device with permanent overwrite
   const sendCompleteDeviceConfig = async () => {
     try {
-      // Get the device from route params if available
       const { device } = route.params || {};
       if (!device) {
         console.log('No device connected. Please connect to a device first.');
@@ -4584,7 +4822,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
 
       console.log('Sending complete device configuration to device for PERMANENT overwrite...');
       
-      // Connect to device if not already connected
       let connectedDevice = device.connectedDevice;
       if (!connectedDevice) {
         try {
@@ -4596,13 +4833,11 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
         }
       }
 
-      // Discover services and characteristics
       await connectedDevice.discoverAllServicesAndCharacteristics();
       
-      // Calculate data frequency
-      const dataFreq = calculateDataFrequency();
+      // Update data frequency before sending
+      await handleDataFrequencyChange();
       
-      // Format date and time formats
       const dateFormat = selectedDateFormat.includes('YYYY-MM-DD') ? 'YYYY-MM-DD' : 
                         selectedDateFormat.includes('MM/DD/YYYY') ? 'MM/DD/YYYY' : 
                         selectedDateFormat.includes('DD/MM/YYYY') ? 'DD/MM/YYYY' : 'YYYY-MM-DD';
@@ -4610,19 +4845,16 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
       const timeFormat = selectedDateFormat.includes('HH:mm:ss') ? 'HH:mm:SS' : 
                         selectedDateFormat.includes('HH:mm') ? 'HH:mm' : 'HH:mm:SS';
       
-      // Create complete device configuration in the same format as Python device Key '2'
-      // This will PERMANENTLY overwrite all existing configuration
       const completeConfig = `{$device_config$` +
         `Servr_name:${serverSiteName},` +
-        `data_freq:${dataFreq},` +
+        `data_freq:${dataFreequency},` +
         `date_fr:${dateFormat},` +
         `time_fr:${timeFormat},` +
-        `gpio_extender_enabled:0,` +
+        `gpio_extender_enabled:${gpio_enabled},` +
         `gsm_sim_name:${selectedSim.toUpperCase()}}`;
       
       console.log('Complete device configuration for PERMANENT overwrite:', completeConfig);
       
-      // Send configuration to device using the same chunked method
       const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
       const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
       
@@ -4642,25 +4874,22 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
             base64Chunk
           );
           
-          // Small delay between chunks
           await new Promise(resolve => setTimeout(resolve, 50));
         }
         
         console.log('Device configuration sent successfully for PERMANENT overwrite');
         
-        // 🔥 NEW: Update command '2' on Python device with new values
         console.log('Updating command "2" on Python device with new configuration...');
         const command2Update = `{$device_config$` +
           `Servr_name:${serverSiteName},` +
-          `data_freq:${dataFreq},` +
+          `data_freq:${dataFreequency},` +
           `date_fr:${dateFormat},` +
           `time_fr:${timeFormat},` +
-          `gpio_extender_enabled:0,` +
+          `gpio_extender_enabled:${gpio_enabled},` +
           `gsm_sim_name:${selectedSim.toUpperCase()}}`;
         
         console.log('New command "2" value:', command2Update);
         
-        // Send the command '2' update to device (this will update the Python device's STRING_MAP)
         const command2Encoded = Buffer.from(command2Update, 'utf8');
         for (let i = 0; i < command2Encoded.length; i += 18) {
           const chunk = command2Encoded.slice(i, i + 18);
@@ -4677,10 +4906,8 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
         
         console.log('Command "2" updated successfully on Python device');
         
-        // Wait a moment for device to process the configuration
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Send a confirmation command to ensure settings are permanently saved
         const confirmCommand = '{$save_config_permanent}';
         console.log('Sending permanent save confirmation command:', confirmCommand);
         
@@ -4689,7 +4916,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
           const chunk = confirmEncoded.slice(i, i + 18);
           const base64Chunk = chunk.toString('base64');
           
-          await connectedDevice!.writeCharacteristicWithoutResponseForService(
+          await connectedDevice.writeCharacteristicWithoutResponseForService(
             SERVICE_UUID,
             F1_WRITE_UUID,
             base64Chunk
@@ -4704,24 +4931,25 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
         console.log(`⏰ Data Frequency: ${selectedHours}h ${selectedMinutes}m`);
         console.log(`📅 Date Format: ${dateFormat}`);
         console.log(`🕐 Time Format: ${timeFormat}`);
+        console.log(`🔌 GPIO Extender: ${gpio_enabled ? 'Enabled' : 'Disabled'}`);
         console.log('💾 All old settings have been completely replaced with new values.');
         console.log('🔧 Command "2" has been updated on device.');
         
-        // Update parent components
         if (setServerSiteName) setServerSiteName(serverSiteName);
         if (setParentSelectedSim) setParentSelectedSim(selectedSim);
         if (setParentSelectedDateFormat) setParentSelectedDateFormat(selectedDateFormat);
+        if (setDataFreequency) setDataFreequency(dataFreequency);
+        if (set_gpio_enabled) set_gpio_enabled(gpio_enabled);
         
-        // Save to local storage as well for persistence
         await saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
         await saveToStorage(STORAGE_KEYS.SELECTED_SIM, selectedSim);
         await saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, selectedDateFormat);
+        await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, dataFreequency);
+        await saveToStorage(STORAGE_KEYS.GPIO_ENABLED, gpio_enabled);
         
-        // Verify the permanent save by requesting device config
         console.log('Verifying permanent save by requesting device configuration...');
         setTimeout(async () => {
           try {
-            // Send command to get device config for verification
             const verifyCommand = '{$send_device_config}';
             const verifyEncoded = Buffer.from(verifyCommand, 'utf8');
             
@@ -4729,7 +4957,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
               const chunk = verifyEncoded.slice(i, i + 18);
               const base64Chunk = chunk.toString('base64');
               
-              await connectedDevice!.writeCharacteristicWithoutResponseForService(
+              await connectedDevice.writeCharacteristicWithoutResponseForService(
                 SERVICE_UUID,
                 F1_WRITE_UUID,
                 base64Chunk
@@ -4742,7 +4970,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
           } catch (verifyError: any) {
             console.error('Error during verification:', verifyError);
           }
-        }, 2000); // Wait 2 seconds before verification
+        }, 2000);
         
       } catch (error: any) {
         console.error('Error sending device configuration:', error);
@@ -4751,7 +4979,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
       
     } catch (error: any) {
       console.error('Error in sendCompleteDeviceConfig:', error);
-              console.log(`Error: Configuration update failed: ${error.message}`);
+      console.log(`Error: Configuration update failed: ${error.message}`);
     }
   };
 
@@ -4790,7 +5018,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
         <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>Settings</Text>
       </View>
       
-            <ScrollView style={{ flex: 1, padding: 16 }} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1, padding: 16 }} showsVerticalScrollIndicator={false}>
         {/* Modern Settings Header */}
         <View style={{
           backgroundColor: theme.surface,
@@ -5037,282 +5265,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
           )}
         </View>
 
-        {/* Sensor Management Card */}
-        <View style={{
-          backgroundColor: '#fff',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 12,
-          elevation: 2,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.1,
-          shadowRadius: 2,
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-            <View style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              backgroundColor: '#e8f5e8',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Icon name="sensors" size={16} color="#4CAF50" />
-            </View>
-            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
-              Sensor Management
-            </Text>
-          </View>
-          
-          <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
-            Select Sensor Configuration
-          </Text>
-          <TouchableOpacity
-            style={{
-              backgroundColor: '#fafafa',
-              borderWidth: 1,
-              borderColor: '#e0e0e0',
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-                marginBottom: 8,
-            }}
-            onPress={() => setShowSensorDropdown(!showSensorDropdown)}
-          >
-            <Text style={{ fontSize: 14, color: '#333', fontWeight: '500' }}>
-                {Object.keys(sensorConfigData).length > 0 
-                  ? `${Object.keys(sensorConfigData).length} Device Sensors`
-                  : 'Default Sensors'
-                }
-            </Text>
-            <Icon name={showSensorDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
-          </TouchableOpacity>
-
-            {/* Fetch Sensors Button */}
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#4CAF50',
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                alignItems: 'center',
-                marginBottom: 8,
-              }}
-              onPress={async() => {
-                console.log('=== FETCH: Getting sensor data from device ===');
-                await fetchSensorData()
-                // Test with complete sensor data from your Python device
-                
-                
-               
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-                🔍 Fetch Sensors
-              </Text>
-            </TouchableOpacity>
-
-
-            {/* Debug Current State Button - Hidden */}
-            {/* 
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#2196F3',
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                alignItems: 'center',
-                marginBottom: 8,
-              }}
-              onPress={() => {
-                const sensorList = Object.entries(sensorStates).map(([name, enabled]) => 
-                  `${name}: ${enabled ? '✅' : '❌'}`
-                ).join('\n');
-                
-                console.log('Current Sensor States:');
-                console.log(`Total Sensors: ${Object.keys(sensorStates).length}`);
-                console.log(sensorList);
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-                🔍 Show Current Sensors
-              </Text>
-            </TouchableOpacity>
-            */}
-
-            {/* Sync Sensors Button */}
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#FF9800',
-                borderRadius: 8,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                alignItems: 'center',
-                marginBottom: 8,
-              }}
-              onPress={async () => {
-                try {
-                  // Load the latest sensor config data from storage
-                  const latestSensorConfigData = await loadFromStorage('sensor_config_data', {});
-                  const latestSensorStates = await loadFromStorage(STORAGE_KEYS.SENSOR_STATES, DEFAULT_SENSOR_STATES);
-                  
-                  console.log('=== SYNC SENSORS BUTTON PRESSED ===');
-                  console.log('Latest sensor config data:', latestSensorConfigData);
-                  console.log('Latest sensor states:', latestSensorStates);
-                  console.log('Current sensorConfigData:', sensorConfigData);
-                  console.log('Current sensorStates:', sensorStates);
-                  
-                  // Update the state with loaded data
-                  setSensorConfigData(latestSensorConfigData);
-                  setLocalSensorStates(latestSensorStates);
-                  
-                  // Force a re-render by updating the sensor dropdown text
-                  const sensorCount = Object.keys(latestSensorConfigData).length;
-                  console.log(`Updated to show ${sensorCount} sensors`);
-                  
-                  // Show success alert for debugging
-                          console.log('Sensors Synced:', `Synced ${Object.keys(latestSensorConfigData).length} sensors from storage`);
-        console.log(`Synced ${Object.keys(latestSensorStates).length} sensor states`);
-        console.log(`Previous: ${Object.keys(sensorConfigData).length} sensors`);
-        console.log(`Now: ${Object.keys(latestSensorConfigData).length} sensors`);
-                } catch (error) {
-                  console.error('Error syncing sensors:', error);
-                  console.log(`Error: Failed to sync sensors: ${error.message}`);
-                }
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 12 }}>
-                🔄 Sync Sensors
-              </Text>
-          </TouchableOpacity>
-          
-          {showSensorDropdown && (
-            <View style={{
-              backgroundColor: '#fff',
-              borderWidth: 1,
-              borderColor: '#e0e0e0',
-              borderRadius: 8,
-              marginTop: 4,
-              elevation: 3,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              maxHeight: 300,
-            }}>
-              <ScrollView 
-                style={{ maxHeight: 250 }}
-                showsVerticalScrollIndicator={true}
-                nestedScrollEnabled={true}
-              >
-                {Object.keys(sensorConfigData).length > 0 
-                  ? Object.keys(sensorConfigData).map((sensorName, index) => (
-                      <TouchableOpacity
-                        key={sensorName}
-                        style={{
-                          paddingHorizontal: 12,
-                          paddingVertical: 12,
-                          borderBottomWidth: index < Object.keys(sensorConfigData).length - 1 ? 1 : 0,
-                          borderBottomColor: '#f0f0f0',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          backgroundColor: '#f0f8f0',
-                        }}
-                        onPress={() => handleSensorStateChange(sensorName, !sensorStates[sensorName])}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                          <View style={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: 6,
-                            backgroundColor: sensorStates[sensorName] ? '#4CAF50' : '#ccc',
-                            marginRight: 10,
-                          }} />
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: sensorStates[sensorName] ? '#4CAF50' : '#333',
-                            fontWeight: sensorStates[sensorName] ? '600' : 'normal',
-                            flex: 1,
-                          }}>
-                            {sensorName} (Device)
-                          </Text>
-                        </View>
-                        <View style={{
-                          backgroundColor: sensorStates[sensorName] ? '#e8f5e8' : '#f5f5f5',
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          borderRadius: 12,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 10, 
-                            color: sensorStates[sensorName] ? '#4CAF50' : '#999',
-                            fontWeight: 'bold',
-                            textTransform: 'uppercase',
-                          }}>
-                            {sensorStates[sensorName] ? 'Active' : 'Inactive'}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))
-                  : Object.entries(sensorStates).map(([sensorName, isEnabled], index) => (
-                  <TouchableOpacity
-                    key={sensorName}
-                    style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 12,
-                      borderBottomWidth: index < Object.keys(sensorStates).length - 1 ? 1 : 0,
-                      borderBottomColor: '#f0f0f0',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      backgroundColor: isEnabled ? '#f0f8f0' : 'transparent',
-                    }}
-                    onPress={() => handleSensorStateChange(sensorName, !isEnabled)}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <View style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 6,
-                        backgroundColor: isEnabled ? '#4CAF50' : '#ccc',
-                        marginRight: 10,
-                      }} />
-                      <Text style={{ 
-                        fontSize: 14, 
-                        color: isEnabled ? '#4CAF50' : '#333',
-                        fontWeight: isEnabled ? '600' : 'normal',
-                        flex: 1,
-                      }}>
-                        {sensorName}
-                      </Text>
-                    </View>
-                    <View style={{
-                      backgroundColor: isEnabled ? '#e8f5e8' : '#f5f5f5',
-                      paddingHorizontal: 8,
-                      paddingVertical: 4,
-                      borderRadius: 12,
-                    }}>
-                      <Text style={{ 
-                        fontSize: 10, 
-                        color: isEnabled ? '#4CAF50' : '#666',
-                        fontWeight: 'bold',
-                        textTransform: 'uppercase',
-                      }}>
-                        {isEnabled ? 'Active' : 'Inactive'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
-
         {/* Time & Data Settings Card */}
         <View style={{
           backgroundColor: '#fff',
@@ -5341,74 +5293,19 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
             </Text>
           </View>
           
-          {/* Date Format Selection */}
-          <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
-            Date & Time Format
-          </Text>
-          <TouchableOpacity
-            style={{
-              backgroundColor: '#fafafa',
-              borderWidth: 1,
-              borderColor: '#e0e0e0',
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 12,
-            }}
-            onPress={() => setShowDateFormatDropdown(!showDateFormatDropdown)}
-          >
-            <Text style={{ fontSize: 14, color: '#333', fontWeight: '500' }}>
-              {selectedDateFormat}
+          {/* GPIO Extender Toggle */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Text style={{ fontSize: 14, color: '#666' }}>
+              GPIO Extender
             </Text>
-            <Icon name={showDateFormatDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
-          </TouchableOpacity>
-          
-          {showDateFormatDropdown && (
-            <View style={{
-              backgroundColor: '#fff',
-              borderWidth: 1,
-              borderColor: '#e0e0e0',
-              borderRadius: 8,
-              marginBottom: 12,
-              elevation: 3,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.1,
-              shadowRadius: 4,
-              maxHeight: 200,
-            }}>
-              {[
-                'DD/MM/YYYY HH:mm:ss',
-                'MM/DD/YYYY HH:mm:ss',
-                'YYYY-MM-DD HH:mm:ss',
-                'DD-MM-YYYY HH:mm',
-                'MM/DD/YYYY'
-              ].map((format, index) => (
-                <TouchableOpacity
-                  key={format}
-                  style={{
-                    paddingHorizontal: 12,
-                    paddingVertical: 12,
-                    borderBottomWidth: index < 4 ? 1 : 0,
-                    borderBottomColor: '#f0f0f0',
-                    backgroundColor: selectedDateFormat === format ? '#fff3e0' : 'transparent',
-                  }}
-                  onPress={() => {
-                    handleDateFormatChange(format);
-                    setShowDateFormatDropdown(false);
-                  }}
-                >
-                  <Text style={{ fontSize: 14, color: selectedDateFormat === format ? '#FF9800' : '#333' }}>
-                    {format}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-          
+            <Switch
+              value={gpio_enabled == 1}
+              onValueChange={handleGpioEnabledToggle}
+              trackColor={{ false: '#e0e0e0', true: '#4CAF50' }}
+              thumbColor={gpio_enabled == 1 ? '#fff' : '#f4f3f4'}
+            />
+          </View>
+
           {/* Current Time Display */}
           <View style={{ 
             backgroundColor: '#f8f9fa', 
@@ -5426,36 +5323,44 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
             </Text>
           </View>
           
-          {/* Time Sync Status */}
-          <View style={{ 
-            backgroundColor: '#f0f8f0', 
-            borderRadius: 8, 
-            padding: 12, 
-            marginBottom: 12,
-            borderLeftWidth: 3,
-            borderLeftColor: '#4CAF50',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <View style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: '#4CAF50',
-                marginRight: 8,
-              }} />
-              <Text style={{ fontSize: 12, color: '#666' }}>
-                Automatic Sync with Mobile Time
-              </Text>
-            </View>
-            <Text style={{ fontSize: 12, color: '#4CAF50', fontWeight: 'bold' }}>
-              ENABLED
-            </Text>
-            <Text style={{ fontSize: 10, color: '#999', marginTop: 2 }}>
-              Last sync: {formatDate(currentTime, globalDateFormat)}
-            </Text>
-          </View>
-          
-
+          <View style={{
+  backgroundColor: theme.isDark ? '#2a2a2a' : '#f8f9fa',
+  borderRadius: 10,
+  padding: 12,
+  marginBottom: 12,
+  borderWidth: 1,
+  borderColor: theme.success || '#4CAF50',
+}}>
+  <TouchableOpacity
+    style={{
+      backgroundColor: theme.success || '#4CAF50',
+      borderRadius: 10,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 2,
+      shadowColor: theme.shadow || '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.2,
+      shadowRadius: 2,
+    }}
+    onPress={sendTimeSyncCommand}
+    activeOpacity={0.8}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Icon name="clock-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+      <Text style={{
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#fff',
+        letterSpacing: 0.3,
+      }}>
+        Sync Time
+      </Text>
+    </View>
+  </TouchableOpacity>
+</View>
           
           {/* Data Frequency Picker */}
           <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
@@ -5502,7 +5407,10 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                         marginVertical: 2,
                         width: 60
                       }}
-                      onPress={() => setSelectedHours(value)}
+                      onPress={() => {
+                        setSelectedHours(value);
+                        handleDataFrequencyChange();
+                      }}
                     >
                       <Text style={{ 
                         fontSize: value === selectedHours ? 18 : 16, 
@@ -5559,7 +5467,10 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                             marginVertical: 2,
                             width: 60
                           }}
-                          onPress={() => setSelectedMinutes(value)}
+                          onPress={() => {
+                            setSelectedMinutes(value);
+                            handleDataFrequencyChange();
+                          }}
                         >
                           <Text style={{ 
                             fontSize: value === selectedMinutes ? 18 : 16, 
@@ -5599,6 +5510,30 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
           </View>
         </View>
 
+        {/* Save Settings Button */}
+        <TouchableOpacity
+          style={{
+            backgroundColor: '#4CAF50',
+            borderRadius: 12,
+            padding: 16,
+            alignItems: 'center',
+            flexDirection: 'row',
+            justifyContent: 'center',
+            elevation: 3,
+            shadowColor: '#4CAF50',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.3,
+            shadowRadius: 4,
+          }}
+          onPress={sendCompleteDeviceConfig}
+          activeOpacity={0.8}
+        >
+          <Icon name="content-save" size={20} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
+            💾 PERMANENTLY SAVE SETTINGS
+          </Text>
+        </TouchableOpacity>
+
         {/* Theme Selection Card */}
         <View style={{
           backgroundColor: theme.surface,
@@ -5633,7 +5568,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
 
           {/* Theme Options */}
           <View style={{ gap: 8 }}>
-            {/* Light Theme Option */}
             <TouchableOpacity
               style={{
                 backgroundColor: themeType === 'light' ? theme.primary : theme.isDark ? '#2a2a2a' : '#f8f9fa',
@@ -5690,7 +5624,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
               )}
             </TouchableOpacity>
 
-            {/* Dark Theme Option */}
             <TouchableOpacity
               style={{
                 backgroundColor: themeType === 'dark' ? theme.primary : theme.isDark ? '#2a2a2a' : '#f8f9fa',
@@ -5747,7 +5680,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
               )}
             </TouchableOpacity>
 
-            {/* System Theme Option */}
             <TouchableOpacity
               style={{
                 backgroundColor: themeType === 'system' ? theme.primary : theme.isDark ? '#2a2a2a' : '#f8f9fa',
@@ -5805,57 +5737,12 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
             </TouchableOpacity>
           </View>
 
-          {/* Quick Theme Toggle */}
           <View style={{ 
             marginTop: 16, 
             paddingTop: 16, 
             borderTopWidth: 1, 
             borderTopColor: theme.border 
           }}>
-            <TouchableOpacity
-              style={{
-                backgroundColor: theme.primary,
-                borderRadius: 8,
-                padding: 12,
-                alignItems: 'center',
-                flexDirection: 'row',
-                justifyContent: 'center',
-                marginBottom: 12,
-              }}
-              onPress={toggleTheme}
-              activeOpacity={0.8}
-            >
-              <Icon name="refresh" size={16} color={theme.text} style={{ marginRight: 8 }} />
-              <Text style={{ color: theme.text, fontWeight: '600', fontSize: 14 }}>
-                Quick Toggle Theme
-              </Text>
-            </TouchableOpacity>
-            
-            {/* Save Settings Button */}
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#4CAF50',
-                borderRadius: 12,
-                padding: 16,
-                alignItems: 'center',
-                flexDirection: 'row',
-                justifyContent: 'center',
-                elevation: 3,
-                shadowColor: '#4CAF50',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.3,
-                shadowRadius: 4,
-              }}
-              onPress={sendCompleteDeviceConfig}
-              activeOpacity={0.8}
-            >
-              <Icon name="content-save" size={20} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>
-                💾 PERMANENTLY SAVE SETTINGS
-              </Text>
-            </TouchableOpacity>
-            
-            {/* Warning Text */}
             <View style={{
               backgroundColor: '#fff3cd',
               borderRadius: 8,
@@ -5869,7 +5756,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
               </Text>
             </View>
             
-            {/* Refresh from Device Button */}
             <TouchableOpacity
               style={{
                 backgroundColor: '#2196F3',
@@ -5895,7 +5781,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                   
                   console.log('Refreshing settings from device...');
                   
-                  // Connect to device if not already connected
                   let connectedDevice = device.connectedDevice;
                   if (!connectedDevice) {
                     try {
@@ -5907,10 +5792,8 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                     }
                   }
                   
-                  // Discover services and characteristics
                   await connectedDevice.discoverAllServicesAndCharacteristics();
                   
-                  // Send command to get device config
                   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
                   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
                   
@@ -5930,9 +5813,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                     await new Promise(resolve => setTimeout(resolve, 50));
                   }
                   
-                  // Also fetch sensor configuration
-                  await fetchSensorConfig();
-                  
                   console.log('🔄 Refresh Requested - Device configuration and sensor data refresh commands sent!');
                   console.log('Check the Device Dashboard and Sensor Management to see the updated settings.');
                   
@@ -5948,26 +5828,6 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
                 🔄 Refresh from Device
               </Text>
             </TouchableOpacity>
-            
-            {/* Settings Summary */}
-            <View style={{
-              backgroundColor: theme.isDark ? '#2a2a2a' : '#f8f9fa',
-              borderRadius: 8,
-              padding: 12,
-              marginTop: 12,
-              borderLeftWidth: 3,
-              borderLeftColor: '#4CAF50',
-            }}>
-              <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 4, fontWeight: 'bold' }}>
-                Current Settings Summary:
-              </Text>
-              <Text style={{ fontSize: 11, color: theme.textSecondary }}>
-                Server: {serverSiteName} | SIM: {selectedSim} | Data Freq: {selectedHours}h {selectedMinutes}m
-              </Text>
-              <Text style={{ fontSize: 11, color: theme.textSecondary }}>
-                Date Format: {selectedDateFormat}
-              </Text>
-            </View>
           </View>
         </View>
       </ScrollView>
@@ -6083,6 +5943,7 @@ const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
     </View>
   );
 }
+
 
 function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: any }) {
   const { device } = route.params;
@@ -6467,26 +6328,26 @@ function AdvertiserScreen() {
 function SensorCalibrationScreen({ route, navigation }: { route: any; navigation: any }) {
   const { theme } = useTheme();
   const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
-  const [calibrationData, setCalibrationData] = useState<{[key: string]: {offset: string, scale: string}}>({});
+  const [calibrationData, setCalibrationData] = useState<{ [key: string]: {key:string, offset: string; scale: string ,is_en:boolean } }>({});
   const [offsetValue, setOffsetValue] = useState('');
   const [scaleValue, setScaleValue] = useState('');
-  const [deviceSensors, setDeviceSensors] = useState<{[key: string]: {offset: number, scale: number}}>({});
-  const [modifiedSensors, setModifiedSensors] = useState<{[key: string]: boolean}>({});
+  const [deviceSensors, setDeviceSensors] = useState<{ [key: string]: { offset: number; scale: number; is_en: number } }>({});
+  const [modifiedSensors, setModifiedSensors] = useState<{ [key: string]: boolean }>({});
   const [isLoadingSensors, setIsLoadingSensors] = useState(false);
   const [showLoadingModal, setShowLoadingModal] = useState(false);
   const spinValue = useRef(new Animated.Value(0)).current;
   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
   const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+
   // Load calibration data and device sensors on component mount
   useEffect(() => {
     loadCalibrationData();
     loadDeviceSensors();
-    // Automatically fetch device sensors on mount
-    fetchSensorData();
+    // fetchSensorData();
   }, []);
 
-  // Spinning animation effect
+  // Spinning animation for loading modal
   useEffect(() => {
     if (showLoadingModal) {
       const spinAnimation = Animated.loop(
@@ -6510,7 +6371,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     }
   };
 
-  const saveCalibrationData = async (data: {[key: string]: {offset: string, scale: string}}) => {
+  const saveCalibrationData = async (data: { [key: string]: { offset: string; scale: string,is_en:boolean } }) => {
     try {
       await saveToStorage('SENSOR_CALIBRATION_DATA', data);
     } catch (error) {
@@ -6518,10 +6379,125 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     }
   };
 
-  // Load device sensors from storage (fetched from device)
+  const parseSensorConfig = (data: string) => {
+  try {
+    console.log('Parsing sensor config data:', data);
+
+    // Remove { } wrapper
+    const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+    console.log('Cleaned sensor config data:', cleanData);
+
+    const sensorData: {
+      [key: string]: {
+        key: string;
+        offset: number;
+        scale: number;
+        is_en: number;
+        val: number;
+        rs485: boolean;
+        response: string;
+      };
+    } = {};
+    const sensorNames: string[] = []; // Array to store just the sensor names
+
+    // Use while loop to find all S_Name:%s patterns
+    let currentData = cleanData;
+    let startIndex = 0;
+
+    while (true) {
+      // Find next S_Name: occurrence
+      const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+      if (sNameIndex === -1) break; // No more S_Name: found
+
+      // Find the end of this sensor entry (next S_Name: or end of string)
+      const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+      const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+
+      // Extract this sensor entry
+      const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+      console.log('Processing sensor entry:', sensorEntry);
+
+      try {
+        // Parse the sensor name (everything before first comma)
+        const commaIndex = sensorEntry.indexOf(',');
+        if (commaIndex === -1) {
+          console.log('Skipping sensor entry with no comma');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        const sensorName = sensorEntry.substring(0, commaIndex).trim();
+        console.log('Found sensor name:', sensorName);
+
+        // Skip entries with empty S_Name
+        if (!sensorName) {
+          console.log('Skipping sensor entry with empty S_Name');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        // Parse the key (Key:<value>)
+        const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+        const key = keyMatch ? keyMatch[1].trim() : '';
+
+        // Skip entries with empty Key
+        if (!key) {
+          console.log('Skipping sensor entry with empty Key');
+          startIndex = sNameIndex + 7;
+          continue;
+        }
+
+        // Handle duplicate sensor names
+        const existingCount = sensorNames.filter(name => name === sensorName).length;
+        const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
+        sensorNames.push(uniqueSensorKey);
+
+        // Extract other fields
+        const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+        const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+        const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
+        const valMatch = sensorEntry.match(/Val:([^,}]+)/);
+        const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
+        const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+
+        sensorData[uniqueSensorKey] = {
+          key,
+          offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
+          scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
+          is_en: parseFloat(isEnMatch[1]),
+          val: valMatch ? parseFloat(valMatch[1]) : 0,
+          rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
+          response: responseMatch ? responseMatch[1] : 'Unknown',
+        };
+
+        console.log(
+          `Parsed sensor: ${uniqueSensorKey}, Key: ${sensorData[uniqueSensorKey].key}, Offset: ${
+            sensorData[uniqueSensorKey].offset
+          }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${
+            sensorData[uniqueSensorKey].is_en
+          }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${
+            sensorData[uniqueSensorKey].rs485
+          }, Response: ${sensorData[uniqueSensorKey].response}`
+        );
+      } catch (sensorError) {
+        console.log('Error parsing individual sensor:', sensorError);
+      }
+
+      // Move to next position
+      startIndex = sNameIndex + 7;
+    }
+
+    console.log('Final parsed sensor config:', sensorData);
+    return sensorData;
+  } catch (error) {
+    console.log('Error parsing sensor config:', error);
+    return {};
+  }
+};
+
   const loadDeviceSensors = async () => {
     try {
-      const savedDeviceSensors = await loadFromStorage('DEVICE_SENSOR_CONFIG', {});
+      const savedDeviceSensors = await loadFromStorage('sensor_config_data', {});
       setDeviceSensors(savedDeviceSensors);
       console.log('Loaded device sensors for calibration:', savedDeviceSensors);
     } catch (error) {
@@ -6529,300 +6505,242 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     }
   };
 
-  // Function to build sensor configuration packet (Command "1" format)
-  const buildSensorConfigPacket = (sensors: {[key: string]: {offset: number, scale: number, is_enabled: boolean}}) => {
+  const buildSensorConfigPacket = (sensors: { [key: string]: { offset: number; scale: number; is_en: number } }) => {
     let packet = '{$sensor_config$';
-    
-    Object.entries(sensors).forEach(([sensorName, config]) => {
-      const isEnabled = config.is_enabled ? 'Yes' : 'No';
-      packet += `S_Name:${sensorName},Offset:${config.offset.toFixed(2)},Scale:${config.scale.toFixed(2)},is_en:${isEnabled},`;
+    Object.entries(sensors).forEach(([sensorKey, config]) => {
+      const isActive = config.is_en ;
+      packet += `Key:${sensorKey},Offset:${config.offset.toFixed(2)},Scale:${config.scale.toFixed(2)},is_en:${isActive},`;
     });
-    
-    // Remove trailing comma and add closing brace
     packet = packet.slice(0, -1) + '}';
-    
     console.log('Built sensor config packet:', packet);
     return packet;
   };
 
-  // Function to send sensor configuration to device (Command "1")
-  const sendSensorConfiguration = async (sensors: {[key: string]: {offset: number, scale: number, is_enabled: boolean}}) => {
+  const sendSensorConfiguration = async (sensors: { [key: string]: {offset: number; scale: number; is_en: number } }) => {
     try {
       const { device } = route.params || {};
       if (!device) {
         console.log('No device available for sending sensor config');
+        Alert.alert('Error', 'No device available for sending sensor configuration.');
         return false;
       }
 
       console.log('=== SENDING SENSOR CONFIGURATION TO DEVICE ===');
-      
-      // Connect to device
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
-      // Build the sensor configuration packet
+
       const configPacket = buildSensorConfigPacket(sensors);
-      
-      // Send the configuration packet
       const commandSent = await sendCommandInChunks(connectedDevice, configPacket);
-      
+
       if (commandSent) {
         console.log('✅ Sensor configuration sent successfully');
+        Alert.alert('Success', 'Sensor configuration sent successfully.');
         return true;
       } else {
         console.log('❌ Failed to send sensor configuration');
+        Alert.alert('Error', 'Failed to send sensor configuration. Please try again.');
         return false;
       }
-      
     } catch (error: any) {
       console.error('Error sending sensor configuration:', error);
+      Alert.alert('Error', 'An error occurred while sending sensor configuration.');
       return false;
     }
   };
 
-  // Function to get sensor data from device (Command "3")
   const fetchSensorData = async () => {
     try {
       const { device } = route.params || {};
       if (!device) {
         console.log('No device available for fetching sensor data');
+        Alert.alert('Error', 'No device available for fetching sensor data.');
         return null;
       }
 
       console.log('=== FETCHING SENSOR DATA FROM DEVICE ===');
-      
-      // Connect to device
+      setShowLoadingModal(true);
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
-      // Send command "3" to get sensor data
+
       const commandSent = await sendCommandInChunks(connectedDevice, '{$send_sensor_data}');
-      
+
       if (commandSent) {
-        // Monitor for response
         const response = await monitorF3ForSensorConfig(connectedDevice);
         if (response) {
           console.log('✅ Sensor data received:', response);
+          const parsedData = parseSensorConfig(response);
+          setDeviceSensors(parsedData);
+          await saveToStorage('sensor_config_data', parsedData);
           return response;
         }
       }
-      
+
       console.log('❌ No sensor data received');
+      Alert.alert('Error', 'No sensor data received from the device.');
       return null;
-      
     } catch (error: any) {
       console.error('Error fetching sensor data:', error);
+      Alert.alert('Error', 'An error occurred while fetching sensor data.');
       return null;
+    } finally {
+      setShowLoadingModal(false);
     }
   };
 
-  // Fetch fresh device sensors
- 
-
-  // Send command in chunks (18 bytes per chunk as per Arduino code)
   const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
     try {
       const encoded = Buffer.from(command, 'utf8');
       console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
-      
+
       for (let i = 0; i < encoded.length; i += chunkSize) {
         const chunk = encoded.slice(i, i + chunkSize);
         const base64Chunk = chunk.toString('base64');
-        
-        console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
-        
-        await device.writeCharacteristicWithoutResponseForService(
-          SERVICE_UUID,
-          F1_WRITE_UUID,
-          base64Chunk
-        );
-        
-        // Small delay between chunks
+
+        console.log(`Sending chunk ${Math.floor(i / chunkSize) + 1}: ${chunk.toString('utf8')}`);
+        await device.writeCharacteristicWithoutResponseForService(SERVICE_UUID, F1_WRITE_UUID, base64Chunk);
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      
+
       console.log('Command sent successfully in chunks');
       return true;
     } catch (error) {
       console.log('Error sending command in chunks:', error);
+      Alert.alert('Error', 'An error occurred while sending command to the device.');
       return false;
     }
   };
 
-
-  // Monitor F3 characteristic for sensor config response
   const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    let responseData = '';
-    const timeoutId = setTimeout(() => {
-      console.log('Sensor config response timeout');
-      reject(new Error('Sensor config response timeout'));
-    }, 10000);
+    return new Promise((resolve, reject) => {
+      let responseData = '';
+      
 
-    const subscription = connectedDevice.monitorCharacteristicForService(
-      SERVICE_UUID,
-      F3_NOTIFY_UUID,
-      (error, characteristic) => {
-        if (error) {
-          console.log('F3 monitoring error (sensor config):', error);
-          clearTimeout(timeoutId);
-          subscription.remove();
-          reject(error);
-          return;
-        }
-
-        if (characteristic?.value) {
-          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
-          console.log('Received F3 data (sensor config):', chunk);
-          responseData += chunk;
-
-          if (responseData.includes('{') && responseData.includes('}')) {
-            const start = responseData.indexOf('{');
-            const end = responseData.indexOf('}') + 1;
-            const completeMessage = responseData.substring(start, end);
-
-            console.log('Complete sensor config message:', completeMessage);
-            clearTimeout(timeoutId);
+      const subscription = connectedDevice.monitorCharacteristicForService(
+        SERVICE_UUID,
+        F3_NOTIFY_UUID,
+        (error, characteristic) => {
+          if (error) {
+            console.log('F3 monitoring error (sensor config):', error);
+           
             subscription.remove();
-            resolve(completeMessage);
+            reject(error);
+            return;
+          }
+
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('Received F3 data (sensor config):', chunk);
+            responseData += chunk;
+
+            if (responseData.includes('{') && responseData.includes('}')) {
+              const start = responseData.indexOf('{');
+              const end = responseData.indexOf('}') + 1;
+              const completeMessage = responseData.substring(start, end);
+
+              console.log('Complete sensor config message:', completeMessage);
+             
+              subscription.remove();
+              resolve(completeMessage);
+            }
           }
         }
-      }
-    );
-  });
-};
-
-
-
-
-  // Function to parse sensor configuration data
-const parseSensorData = (rawResponse: string) => {
-  try {
-    // 1. Strip outer braces and trailing commas
-    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
-
-    // 2. Split by commas, then into key:value pairs
-    const tokens = clean.split(/,(?=S_Name:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
-
-    const sensors: any[] = [];
-    let current: any = {};
-
-    tokens.forEach(token => {
-      const [key, value] = token.split(":");
-
-      if (key === "S_Name" && Object.keys(current).length > 0) {
-        // start of new sensor → push previous
-        sensors.push(current);
-        current = {};
-      }
-
-      current[key.trim()] = value?.trim() || "";
+      );
     });
+  };
 
-    // push last one
-    if (Object.keys(current).length > 0) {
-      sensors.push(current);
-    }
-
-    return sensors;
-  } catch (err) {
-    console.error("❌ Failed to parse sensor data:", err);
-    return [];
-  }
-};
-
-  // Get list of device sensors only (no dummy sensors)
   const sensors = Object.keys(deviceSensors);
 
   const handleSensorPress = (sensor: string) => {
     setSelectedSensor(sensor);
-    
-    // If we have device sensor data, use it as default values
     if (deviceSensors[sensor]) {
       setOffsetValue(calibrationData[sensor]?.offset || deviceSensors[sensor].offset.toString());
       setScaleValue(calibrationData[sensor]?.scale || deviceSensors[sensor].scale.toString());
     } else {
-      // Fallback to calibration data or empty
-    setOffsetValue(calibrationData[sensor]?.offset || '');
-    setScaleValue(calibrationData[sensor]?.scale || '');
+      setOffsetValue(calibrationData[sensor]?.offset || '');
+      setScaleValue(calibrationData[sensor]?.scale || '');
     }
   };
 
   const handleSetCalibration = async () => {
     if (selectedSensor && offsetValue && scaleValue) {
+      if (isNaN(parseFloat(offsetValue)) || isNaN(parseFloat(scaleValue))) {
+        Alert.alert('Error', 'Please enter valid numeric values for Offset and Scale.');
+        return;
+      }
       const newData = {
         ...calibrationData,
         [selectedSensor]: {
           offset: offsetValue,
-          scale: scaleValue
-        }
+          scale: scaleValue,
+        },
       };
       setCalibrationData(newData);
       await saveCalibrationData(newData);
       console.log('Success:', `Calibration set for ${selectedSensor}`);
+      Alert.alert('Success', `Calibration set for ${selectedSensor}`);
       setSelectedSensor(null);
       setOffsetValue('');
       setScaleValue('');
     } else {
       console.log('Error: Please enter both Offset and Scale values');
+      Alert.alert('Error', 'Please enter both Offset and Scale values.');
     }
+  };
+
+  const handleToggleActive = (sensor: string) => {
+    console.log(sensor,"toggglglglglg")
+    setDeviceSensors(prev => {
+      const updated = {
+        ...prev,
+        [sensor]: { ...prev[sensor], is_en: !prev[sensor].is_en },
+      };
+      console.log('Updated deviceSensors active state:', updated);
+      return updated;
+    });
+    setModifiedSensors(prev => ({
+      ...prev,
+      [sensor]: true,
+    }));
   };
 
   const getSensorIcon = (sensor: string) => {
-    // Dynamic sensor icon mapping based on sensor name patterns
     const sensorName = sensor.toUpperCase();
-    
-    // Temperature sensors
     if (sensorName.includes('TEMP') || sensorName.includes('TPA') || sensorName.includes('TPW')) {
       return 'thermometer';
     }
-    
-    // Water/flow sensors
     if (sensorName.includes('PH') || sensorName.includes('FLW') || sensorName.includes('UFM')) {
       return 'water';
     }
-    
-    // Pressure/gauge sensors
     if (sensorName.includes('TDS') || sensorName.includes('PSR')) {
       return 'gauge';
     }
-    
-    // Chemical sensors
     if (sensorName.includes('CLO')) {
       return 'cloud';
     }
-    
-    // Weight sensors
     if (sensorName.includes('WGT')) {
       return 'scale';
     }
-    
-    // Switch sensors
     if (sensorName.includes('SW')) {
       return 'toggle-switch';
     }
-    
-    // Default fallback
     return 'sensor';
   };
 
+  console.log('deviceSensor calibration screen', deviceSensors);
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
-        translucent={true}
-      />
-      
-      {/* Header */}
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.background, 
-        padding: scale(16),
-        paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
-      }}>
-        <TouchableOpacity 
+      <StatusBar backgroundColor={theme.statusBarBg} barStyle={theme.statusBar} translucent={true} />
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: theme.background,
+          padding: scale(16),
+          paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
+        }}
+      >
+        <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={{
             width: 40,
@@ -6860,7 +6778,7 @@ const parseSensorData = (rawResponse: string) => {
             console.log('Refreshing sensor data...');
             setIsLoadingSensors(true);
             try {
-              await fetchDeviceSensors();
+              await fetchSensorData();
             } catch (error) {
               console.error('Error refreshing sensors:', error);
             } finally {
@@ -6879,87 +6797,72 @@ const parseSensorData = (rawResponse: string) => {
       </View>
 
       <ScrollView style={{ flex: 1, padding: 16 }}>
-
-        
         {Object.keys(deviceSensors).length > 0 && !isLoadingSensors && (
-          <View style={{
-            backgroundColor: theme.success,
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <Icon 
-              name="check-circle" 
-              size={16} 
-              color={theme.text} 
-              style={{ marginRight: 8 }}
-            />
-            <Text style={{ 
-              color: theme.text, 
-              fontWeight: '600', 
-              fontSize: 12 
-            }}>
+          <View
+            style={{
+              backgroundColor: theme.success,
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="check-circle" size={16} color={theme.text} style={{ marginRight: 8 }} />
+            <Text style={{ color: theme.text, fontWeight: '600', fontSize: 12 }}>
               ✅ {Object.keys(deviceSensors).length} device sensors loaded automatically
             </Text>
           </View>
         )}
 
-        {/* Device Sensor Values Summary */}
         {Object.keys(deviceSensors).length > 0 && (
-          <View style={{
-            backgroundColor: theme.surface,
-            borderRadius: 12,
-            padding: 16,
-            marginBottom: 16,
-            elevation: 2,
-            shadowColor: theme.shadow,
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-          }}>
-            <Text style={{ 
-              fontSize: 16, 
-              fontWeight: 'bold', 
-              color: theme.text, 
-              marginBottom: 12,
-              textAlign: 'center'
-            }}>
+          <View
+            style={{
+              backgroundColor: theme.surface,
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              elevation: 2,
+              shadowColor: theme.shadow,
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: theme.text, marginBottom: 12, textAlign: 'center' }}>
               📊 Device Sensor Values Summary
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
               {Object.entries(deviceSensors).map(([sensorName, values]) => (
-                <View key={sensorName} style={{
-                  backgroundColor: theme.overlayLight,
-                  borderRadius: 8,
-                  padding: 8,
-                  marginBottom: 8,
-                  minWidth: '48%',
-                  alignItems: 'center',
-                }}>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    fontWeight: '600', 
-                    color: theme.primary,
-                    marginBottom: 4,
-                  }}>
+                <View
+                  key={sensorName}
+                  style={{
+                    backgroundColor: theme.overlayLight,
+                    borderRadius: 8,
+                    padding: 8,
+                    marginBottom: 8,
+                    minWidth: '48%',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: theme.primary, marginBottom: 4 }}>
                     {sensorName}
                   </Text>
-                  <Text style={{ 
-                    fontSize: 10, 
-                    color: theme.textSecondary,
-                    fontFamily: 'monospace',
-                  }}>
+                  <Text style={{ fontSize: 10, color: theme.textSecondary, fontFamily: 'monospace' }}>
                     Offset: {values.offset.toFixed(2)}
                   </Text>
-                  <Text style={{ 
-                    fontSize: 10, 
-                    color: theme.textSecondary,
-                    fontFamily: 'monospace',
-                  }}>
+                  <Text style={{ fontSize: 10, color: theme.textSecondary, fontFamily: 'monospace' }}>
                     Scale: {values.scale.toFixed(2)}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      color: values.is_en ? theme.success : theme.textSecondary,
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    Status: {values.is_en ? 'Active' : 'Inactive'}
                   </Text>
                 </View>
               ))}
@@ -6967,252 +6870,229 @@ const parseSensorData = (rawResponse: string) => {
           </View>
         )}
 
-        {/* Sensors List */}
         <View style={{ marginBottom: 24 }}>
           <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text, marginBottom: 16 }}>
             Device Sensors
           </Text>
           {sensors.length > 0 ? (
             sensors.map((sensor, index) => (
-            <TouchableOpacity
-              key={sensor}
-              style={{
-                backgroundColor: theme.surface,
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 12,
-                elevation: 2,
-                shadowColor: theme.shadow,
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                borderWidth: 2,
-                borderColor: modifiedSensors[sensor] ? theme.warning : (selectedSensor === sensor ? theme.primary : theme.border),
-              }}
-              onPress={() => handleSensorPress(sensor)}
-              activeOpacity={0.8}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 24,
-                  backgroundColor: selectedSensor === sensor ? theme.primary : theme.overlayLight,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 16,
-                }}>
-                  <Icon 
-                    name={getSensorIcon(sensor)} 
-                    size={24} 
-                    color={selectedSensor === sensor ? theme.text : theme.textSecondary} 
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ 
-                    fontSize: 16, 
-                    fontWeight: '600', 
-                    color: theme.text,
-                    marginBottom: 4,
-                  }}>
-                    {sensor}
-                  </Text>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: theme.textSecondary,
-                    marginBottom: 4,
-                  }}>
-                    {calibrationData[sensor] ? 'Calibrated' : 'Not calibrated'}
-                    {modifiedSensors[sensor] && (
-                      <Text style={{ color: theme.warning, fontWeight: 'bold' }}> • Modified</Text>
-                    )}
-                  </Text>
-                  {deviceSensors[sensor] && (
-                    <View style={{
-                      backgroundColor: theme.overlayLight,
-                      borderRadius: 6,
-                      paddingHorizontal: 8,
-                      paddingVertical: 4,
-                      marginTop: 2,
-                    }}>
-                      <Text style={{ 
-                        fontSize: 11, 
-                        color: theme.primary,
-                        fontWeight: '600',
-                        marginBottom: 4,
-                      }}>
-                        ⚙️ Calibration Values:
+              <TouchableOpacity
+                key={sensor}
+                style={{
+                  backgroundColor: theme.surface,
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 12,
+                  elevation: 2,
+                  shadowColor: theme.shadow,
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  borderWidth: 2,
+                  borderColor: modifiedSensors[sensor] ? theme.warning : selectedSensor === sensor ? theme.primary : theme.border,
+                }}
+                onPress={() => handleSensorPress(sensor)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 24,
+                      backgroundColor: selectedSensor === sensor ? theme.primary : theme.overlayLight,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 16,
+                    }}
+                  >
+                    <Icon
+                      name={getSensorIcon(sensor)}
+                      size={24}
+                      color={selectedSensor === sensor ? theme.text : theme.textSecondary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 16, fontWeight: '600', color: theme.text, flex: 1 }}>
+                        {sensor}
                       </Text>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <View style={{ flex: 1, marginRight: 8 }}>
-                          <Text style={{ 
-                            fontSize: 9, 
-                            color: theme.textSecondary,
-                            marginBottom: 2,
-                          }}>
-                            Offset:
-                          </Text>
-                          <TextInput
-                            style={{
-                              backgroundColor: theme.background,
-                              borderRadius: 4,
-                              paddingHorizontal: 6,
-                              paddingVertical: 2,
-                              fontSize: 10,
-                              color: theme.text,
-                              borderWidth: 1,
-                              borderColor: theme.border,
-                              fontFamily: 'monospace',
-                            }}
-                            value={deviceSensors[sensor]?.offset?.toString() || '0'}
-                            onChangeText={(text) => {
-                              const newValue = parseFloat(text) || 0;
-                              console.log(`Updating ${sensor} offset to:`, newValue);
-                              setDeviceSensors(prev => {
-                                const updated = {
+                      <View
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 5,
+                          backgroundColor: deviceSensors[sensor]?.is_en ? theme.success : theme.textSecondary,
+                          marginRight: 8,
+                        }}
+                      />
+                      <TouchableOpacity
+                        onPress={() => handleToggleActive(sensor)}
+                        style={{ padding: 4 }}
+                      >
+                        <Icon
+                          name={deviceSensors[sensor]?.is_en ? 'toggle-switch' : 'toggle-switch-off'}
+                          size={24}
+                          color={deviceSensors[sensor]?.is_en ? theme.success : theme.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 4 }}>
+                      {calibrationData[sensor] ? 'Calibrated' : 'Not calibrated'}
+                      {modifiedSensors[sensor] && (
+                        <Text style={{ color: theme.warning, fontWeight: 'bold' }}> • Modified</Text>
+                      )}
+                    </Text>
+                    {deviceSensors[sensor] && (
+                      <View
+                        style={{
+                          backgroundColor: theme.overlayLight,
+                          borderRadius: 6,
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          marginTop: 2,
+                        }}
+                      >
+                        <Text style={{ fontSize: 11, color: theme.primary, fontWeight: '600', marginBottom: 4 }}>
+                          ⚙️ Calibration Values:
+                        </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={{ fontSize: 9, color: theme.textSecondary, marginBottom: 2 }}>
+                              Offset:
+                            </Text>
+                            <TextInput
+                              style={{
+                                backgroundColor: theme.background,
+                                borderRadius: 4,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                fontSize: 10,
+                                color: theme.text,
+                                borderWidth: 1,
+                                borderColor: theme.border,
+                                fontFamily: 'monospace',
+                              }}
+                              value={deviceSensors[sensor]?.offset?.toString() || '0'}
+                              onChangeText={(text) => {
+                                if (text && isNaN(parseFloat(text))) {
+                                  Alert.alert('Error', 'Please enter a valid numeric value for Offset.');
+                                  return;
+                                }
+                                const newValue = parseFloat(text) || 0;
+                                console.log(`Updating ${sensor} offset to:`, newValue);
+                                setDeviceSensors(prev => ({
                                   ...prev,
-                                  [sensor]: { ...prev[sensor], offset: newValue }
-                                };
-                                console.log('Updated deviceSensors:', updated);
-                                return updated;
-                              });
-                              // Mark this sensor as modified
-                              setModifiedSensors(prev => ({
-                                ...prev,
-                                [sensor]: true
-                              }));
-                            }}
-                            keyboardType="numeric"
-                            placeholder="0.00"
-                            placeholderTextColor={theme.textSecondary}
-                          />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ 
-                            fontSize: 9, 
-                            color: theme.textSecondary,
-                            marginBottom: 2,
-                          }}>
-                            Scale:
-                          </Text>
-                          <TextInput
-                            style={{
-                              backgroundColor: theme.background,
-                              borderRadius: 4,
-                              paddingHorizontal: 6,
-                              paddingVertical: 2,
-                              fontSize: 10,
-                              color: theme.text,
-                              borderWidth: 1,
-                              borderColor: theme.border,
-                              fontFamily: 'monospace',
-                            }}
-                            value={deviceSensors[sensor]?.scale?.toString() || '1'}
-                            onChangeText={(text) => {
-                              const newValue = parseFloat(text) || 1;
-                              console.log(`Updating ${sensor} scale to:`, newValue);
-                              setDeviceSensors(prev => {
-                                const updated = {
+                                  [sensor]: { ...prev[sensor], offset: newValue },
+                                }));
+                                setModifiedSensors(prev => ({
                                   ...prev,
-                                  [sensor]: { ...prev[sensor], scale: newValue }
-                                };
-                                console.log('Updated deviceSensors:', updated);
-                                return updated;
-                              });
-                              // Mark this sensor as modified
-                              setModifiedSensors(prev => ({
-                                ...prev,
-                                [sensor]: true
-                              }));
-                            }}
-                            keyboardType="numeric"
-                            placeholder="1.00"
-                            placeholderTextColor={theme.textSecondary}
-                          />
+                                  [sensor]: true,
+                                }));
+                              }}
+                              keyboardType="numeric"
+                              placeholder="0.00"
+                              placeholderTextColor={theme.textSecondary}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 9, color: theme.textSecondary, marginBottom: 2 }}>
+                              Scale:
+                            </Text>
+                            <TextInput
+                              style={{
+                                backgroundColor: theme.background,
+                                borderRadius: 4,
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                fontSize: 10,
+                                color: theme.text,
+                                borderWidth: 1,
+                                borderColor: theme.border,
+                                fontFamily: 'monospace',
+                              }}
+                              value={deviceSensors[sensor]?.scale?.toString() || '1'}
+                              onChangeText={(text) => {
+                                if (text && isNaN(parseFloat(text))) {
+                                  Alert.alert('Error', 'Please enter a valid numeric value for Scale.');
+                                  return;
+                                }
+                                const newValue = parseFloat(text) || 1;
+                                console.log(`Updating ${sensor} scale to:`, newValue);
+                                setDeviceSensors(prev => ({
+                                  ...prev,
+                                  [sensor]: { ...prev[sensor], scale: newValue },
+                                }));
+                                setModifiedSensors(prev => ({
+                                  ...prev,
+                                  [sensor]: true,
+                                }));
+                              }}
+                              keyboardType="numeric"
+                              placeholder="1.00"
+                              placeholderTextColor={theme.textSecondary}
+                            />
+                          </View>
                         </View>
                       </View>
+                    )}
+                  </View>
+                  {calibrationData[sensor] && (
+                    <View
+                      style={{
+                        backgroundColor: theme.success,
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, color: theme.text, fontWeight: '600' }}>
+                        SET
+                      </Text>
                     </View>
                   )}
                 </View>
-                {calibrationData[sensor] && (
-                  <View style={{
-                    backgroundColor: theme.success,
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    borderRadius: 8,
-                  }}>
-                    <Text style={{ fontSize: 10, color: theme.text, fontWeight: '600' }}>
-                      SET
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))
+              </TouchableOpacity>
+            ))
           ) : (
-            <View style={{
-              backgroundColor: theme.overlayLight,
-              borderRadius: 12,
-              padding: 20,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Icon 
-                name="sensor" 
-                size={48} 
-                color={theme.textSecondary} 
-                style={{ marginBottom: 12 }}
-              />
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: theme.textSecondary,
-                textAlign: 'center',
-                marginBottom: 8,
-              }}>
+            <View
+              style={{
+                backgroundColor: theme.overlayLight,
+                borderRadius: 12,
+                padding: 20,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon name="sensor" size={48} color={theme.textSecondary} style={{ marginBottom: 12 }} />
+              <Text style={{ fontSize: 16, fontWeight: '600', color: theme.textSecondary, textAlign: 'center', marginBottom: 8 }}>
                 No Device Sensors Available
               </Text>
-              <Text style={{ 
-                fontSize: 12, 
-                color: theme.textSecondary,
-                textAlign: 'center',
-              }}>
+              <Text style={{ fontSize: 12, color: theme.textSecondary, textAlign: 'center' }}>
                 Connect to a device to see sensor calibration options
               </Text>
             </View>
           )}
         </View>
 
-        {/* Calibration Input Section */}
-        {selectedSensor && (
-          <View style={{
-            backgroundColor: theme.surface,
-            borderRadius: 16,
-            padding: 20,
-            elevation: 4,
-            shadowColor: theme.shadow,
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-          }}>
-            <Text style={{ 
-              fontSize: 18, 
-              fontWeight: 'bold', 
-              color: theme.text, 
-              marginBottom: 16,
-              textAlign: 'center',
-            }}>
+        {/* {selectedSensor && (
+          <View
+            style={{
+              backgroundColor: theme.surface,
+              borderRadius: 16,
+              padding: 20,
+              elevation: 4,
+              shadowColor: theme.shadow,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text, marginBottom: 16, textAlign: 'center' }}>
               Calibrate: {selectedSensor}
             </Text>
-            
-            {/* Offset Input */}
             <View style={{ marginBottom: 16 }}>
-              <Text style={{ 
-                fontSize: 14, 
-                fontWeight: '600', 
-                color: theme.text, 
-                marginBottom: 8 
-              }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
                 Offset Value
               </Text>
               <TextInput
@@ -7229,19 +7109,14 @@ const parseSensorData = (rawResponse: string) => {
                 placeholder="Enter offset value"
                 placeholderTextColor={theme.textSecondary}
                 value={offsetValue}
-                onChangeText={setOffsetValue}
+                onChangeText={(text) => {
+                  setOffsetValue(text);
+                }}
                 keyboardType="numeric"
               />
             </View>
-
-            {/* Scale Input */}
             <View style={{ marginBottom: 20 }}>
-              <Text style={{ 
-                fontSize: 14, 
-                fontWeight: '600', 
-                color: theme.text, 
-                marginBottom: 8 
-              }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 8 }}>
                 Scale Value
               </Text>
               <TextInput
@@ -7258,12 +7133,12 @@ const parseSensorData = (rawResponse: string) => {
                 placeholder="Enter scale value"
                 placeholderTextColor={theme.textSecondary}
                 value={scaleValue}
-                onChangeText={setScaleValue}
+                onChangeText={(text) => {
+                  setScaleValue(text);
+                }}
                 keyboardType="numeric"
               />
             </View>
-
-            {/* Set Button */}
             <TouchableOpacity
               style={{
                 backgroundColor: theme.primary,
@@ -7279,18 +7154,13 @@ const parseSensorData = (rawResponse: string) => {
               onPress={handleSetCalibration}
               activeOpacity={0.8}
             >
-              <Text style={{ 
-                color: theme.text, 
-                fontSize: 16, 
-                fontWeight: 'bold' 
-              }}>
+              <Text style={{ color: theme.text, fontSize: 16, fontWeight: 'bold' }}>
                 Set Calibration
               </Text>
             </TouchableOpacity>
           </View>
-        )}
+        )} */}
 
-        {/* Save Configuration Button */}
         <View style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
           <TouchableOpacity
             style={{
@@ -7306,24 +7176,21 @@ const parseSensorData = (rawResponse: string) => {
             }}
             onPress={async () => {
               try {
-                // Build sensor configuration from current device sensors
-                const sensorConfig: {[key: string]: {offset: number, scale: number, is_enabled: boolean}} = {};
-                
-                Object.entries(deviceSensors).forEach(([sensorName, config]) => {
-                  sensorConfig[sensorName] = {
+                const sensorConfig: { [key: string]: { offset: number; scale: number; is_en: number } } = {};
+                Object.entries(deviceSensors).forEach(([sensorKey, config]) => {
+                  sensorConfig[sensorKey] = {
+                    
                     offset: config.offset,
                     scale: config.scale,
-                    is_enabled: true // Default to enabled
+                    is_en: config.is_en,
                   };
                 });
 
-                // Send configuration to device
                 const success = await sendSensorConfiguration(sensorConfig);
-                
+
                 if (success) {
-                  // Clear modified indicators after successful save
                   setModifiedSensors({});
-                                  console.log('✅ Configuration Saved: Sensor configuration has been successfully sent to the device.');
+                  console.log('✅ Configuration Saved: Sensor configuration has been successfully sent to the device.');
                 } else {
                   console.log('❌ Save Failed: Failed to send sensor configuration to device. Please try again.');
                 }
@@ -7336,11 +7203,7 @@ const parseSensorData = (rawResponse: string) => {
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Icon name="content-save" size={24} color="#fff" style={{ marginRight: 12 }} />
-              <Text style={{ 
-                color: '#fff', 
-                fontSize: 18, 
-                fontWeight: 'bold' 
-              }}>
+              <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>
                 Save Configuration to Device
               </Text>
             </View>
@@ -7348,85 +7211,60 @@ const parseSensorData = (rawResponse: string) => {
         </View>
       </ScrollView>
 
-      {/* Loading Modal */}
       {showLoadingModal && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-        }}>
-          <View style={{
-            backgroundColor: theme.surface,
-            borderRadius: 20,
-            padding: 30,
-            alignItems: 'center',
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
             justifyContent: 'center',
-            minWidth: 250,
-            elevation: 10,
-            shadowColor: theme.shadow,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-          }}>
-            {/* Loading Spinner */}
-            <Animated.View style={{
-              width: 60,
-              height: 60,
-              borderRadius: 30,
-              borderWidth: 4,
-              borderColor: theme.overlayLight,
-              borderTopColor: theme.primary,
-              marginBottom: 20,
-              transform: [{
-                rotate: spinValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0deg', '360deg'],
-                })
-              }]
-            }} />
-
-            {/* Loading Text */}
-            <Text style={{
-              fontSize: 18,
-              fontWeight: 'bold',
-              color: theme.text,
-              marginBottom: 8,
-              textAlign: 'center',
-            }}>
+            alignItems: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: theme.surface,
+              borderRadius: 20,
+              padding: 30,
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 250,
+              elevation: 10,
+              shadowColor: theme.shadow,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+            }}
+          >
+            <Animated.View
+              style={{
+                width: 60,
+                height: 60,
+                borderRadius: 30,
+                borderWidth: 4,
+                borderColor: theme.overlayLight,
+                borderTopColor: theme.primary,
+                marginBottom: 20,
+                transform: [
+                  {
+                    rotate: spinValue.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '360deg'],
+                    }),
+                  },
+                ],
+              }}
+            />
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.text, marginBottom: 8, textAlign: 'center' }}>
               🔄 Fetching Device Sensors
             </Text>
-            
-            <Text style={{
-              fontSize: 14,
-              color: theme.textSecondary,
-              textAlign: 'center',
-              lineHeight: 20,
-            }}>
+            <Text style={{ fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 20 }}>
               Connecting to device and retrieving sensor configuration...
             </Text>
-
-            {/* Progress Indicator */}
-            <View style={{
-              width: '100%',
-              height: 4,
-              backgroundColor: theme.overlayLight,
-              borderRadius: 2,
-              marginTop: 20,
-              overflow: 'hidden',
-            }}>
-              <View style={{
-                width: '60%',
-                height: '100%',
-                backgroundColor: theme.primary,
-                borderRadius: 2,
-              }} />
-            </View>
           </View>
         </View>
       )}
@@ -7480,11 +7318,50 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
   };
 
 
-  const clearLogs = () => {
-    setLogs([]);
-    setError('');
-  };
+  const clearLogs = async () => {
+  try {
+    const { device } = route.params || {};
+    if (!device) {
+      console.log('No device available for clearing logs');
+      Alert.alert('Error', 'No device available for clearing logs.');
+      return;
+    }
 
+    console.log('=== CLEARING DEVICE LOGS ===');
+    
+    // Cancel any existing connection
+    try {
+      await manager.cancelDeviceConnection(device.id);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.log('Ignoring cancel connection error for log clearing');
+    }
+
+    // Connect to device
+    console.log('🔌 Connecting to device for log clearing...');
+    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+    await connectedDevice.discoverAllServicesAndCharacteristics();
+    console.log('✅ Device connected & services discovered for log clearing');
+
+    // Send delete logs command
+    const command = '{$delete_logs}';
+    console.log(`➡️ Sending delete log command: "${command}"`);
+    const commandSent = await sendCommandInChunks(connectedDevice, command);
+
+    if (commandSent) {
+      console.log('✅ Delete logs command sent successfully');
+      setLogs([]); // Clear local logs
+      setError(''); // Clear error state
+      Alert.alert('Success', 'Device logs cleared successfully.');
+    } else {
+      console.log('❌ Failed to send delete logs command');
+      Alert.alert('Error', 'Failed to send delete logs command. Please try again.');
+    }
+  } catch (error: any) {
+    console.error('Error clearing logs:', error.message);
+    Alert.alert('Error', 'An error occurred while clearing logs.');
+  }
+};
   const DEVICE_STATUS_COMMAND = '{$send_device_status}';
   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -8205,43 +8082,7 @@ const DeviceLogsLoading = () => (
 
 
         {/* Full Screen Logs Button */}
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#673ab7',
-            paddingVertical: 12,
-            paddingHorizontal: 24,
-            borderRadius: 12,
-            alignItems: 'center',
-            elevation: 3,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
-            shadowRadius: 4,
-          }}
-          onPress={() => {
-            if (logs.length === 0) {
-              setError('No logs available to view in full screen');
-              return;
-            }
-            navigation.navigate('FullScreenLogs', { logs: logs });
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon 
-              name="fullscreen" 
-              size={20} 
-              color="#fff" 
-              style={{ marginRight: 8 }}
-            />
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontWeight: 'bold',
-            }}>
-              Full Screen Logs
-            </Text>
-          </View>
-        </TouchableOpacity>
+       
       </View>
 
       {/* Logs Display */}
