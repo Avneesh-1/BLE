@@ -48,23 +48,61 @@ export const bufferToString = (buffer: Buffer) => {
 };
 
 // BLE Connection Functions
-export const connectToDevice = async (deviceId: string) => {
-  const bleManager = getBLEManager();
-  if (!bleManager) {
-    throw new Error('BLE Manager not initialized');
-  }
+// export const connectToDevice = async (deviceId: string) => {
+//   const bleManager = getBLEManager();
+//   if (!bleManager) {
+//     throw new Error('BLE Manager not initialized');
+//   }
 
-  try {
-    const device = await bleManager.connectToDevice(deviceId, {
-      timeout: TIMEOUTS.CONNECTION,
-    });
-    console.log('Connected to device:', device.name);
-    return device;
-  } catch (error) {
-    console.error('Connection error:', error);
-    throw error;
-  }
-};
+//   try {
+//     const device = await bleManager.connectToDevice(deviceId, {
+//       timeout: TIMEOUTS.CONNECTION,
+//     });
+//     console.log('Connected to device:', device.name);
+//     return device;
+//   } catch (error) {
+//     console.error('Connection error:', error);
+//     throw error;
+//   }
+// };
+
+export async function connectToDevice(deviceId) {
+    try {
+        const device = await manager.connectToDevice(deviceId, { timeout: 15000 });
+        console.log('✅ Connected to device:', device.id);
+        let attempts = 3;
+        while (attempts > 0) {
+            try {
+                await device.discoverAllServicesAndCharacteristics();
+                const services = await device.services();
+                if (services.length === 0) {
+                    throw new Error('No services found after discovery');
+                }
+                console.log('✅ Services discovered:', services.map(s => s.uuid));
+                for (const service of services) {
+                    const characteristics = await device.characteristicsForService(service.uuid);
+                    console.log(`Characteristics for ${service.uuid}:`, characteristics.map(c => ({
+                        uuid: c.uuid,
+                        isNotifying: c.isNotifying,
+                        isReadable: c.isReadable,
+                        isWritableWithResponse: c.isWritableWithResponse
+                    })));
+                }
+               
+                return device;
+            } catch (discoveryError) {
+                console.warn(`⚠️ Discovery attempt ${4 - attempts} failed:`, discoveryError);
+                attempts--;
+                if (attempts === 0) throw discoveryError;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    } catch (error) {
+        console.error('❌ Connection failed:', error);
+        
+        throw error;
+    }
+}
 
 export const discoverServices = async (device: any) => {
   try {

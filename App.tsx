@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useMemo, createContext, useContext, useRef } from 'react';
-import { View, Text, FlatList,Switch, TouchableOpacity, StyleSheet, SafeAreaView, PermissionsAndroid, Platform, Alert, ActivityIndicator, TextInput, ScrollView, Dimensions, StatusBar, Animated, Appearance, Image } from 'react-native';
+import { View, Text, FlatList, Switch, TouchableOpacity, StyleSheet, SafeAreaView, PermissionsAndroid, Platform, Alert, ActivityIndicator, TextInput, ScrollView, Dimensions, StatusBar, Animated, Appearance, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Easing } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
@@ -18,13 +18,15 @@ import { createStackNavigator } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import XLSX from 'xlsx';
 import RNFS from 'react-native-fs';
+import { connectToDevice } from './src/services/BLEService';
+import { connected } from 'process';
 // Initialize BLE Manager with proper error handling
 let manager: any = null;
 
 try {
   manager = new BleManager();
   console.log('BLE Manager created successfully');
-  
+
   // Initialize BLE Manager with error handling
   manager.onStateChange((state: any) => {
     console.log('BLE State:', state);
@@ -56,7 +58,7 @@ const isLargeDevice = screenWidth >= 414 && screenWidth < 768; // iPhone 12 Pro 
 const isTablet = screenWidth >= 768; // iPad, Android tablets
 
 // Enhanced responsive scaling functions
- 
+
 const scale = (size: number) => {
   if (isTinyDevice) return size * 0.7;
   if (isSmallDevice) return size * 0.8;
@@ -116,38 +118,38 @@ export const lightTheme = {
   primary: '#00bcd4',
   primaryDark: '#0097a7',
   primaryLight: '#e0f7fa',
-  
+
   // Background Colors
   background: '#f8fafc',
   surface: '#ffffff',
   card: '#ffffff',
-  
+
   // Text Colors
   text: '#333333',
   textSecondary: '#666666',
   textTertiary: '#999999',
-  
+
   // Status Colors
   success: '#4CAF50',
   warning: '#FF9800',
   error: '#f44336',
   info: '#2196F3',
-  
+
   // Border & Divider Colors
   border: '#e0e0e0',
   divider: '#f0f0f0',
-  
+
   // Overlay Colors
   overlay: 'rgba(0,0,0,0.6)',
   overlayLight: 'rgba(255,255,255,0.2)',
-  
+
   // Shadow Colors
   shadow: '#000000',
-  
+
   // Status Bar
   statusBar: 'light-content' as const,
   statusBarBg: '#00bcd4',
-  
+
   // Theme Type
   isDark: false,
 };
@@ -157,38 +159,38 @@ export const darkTheme = {
   primary: '#00bcd4',
   primaryDark: '#0097a7',
   primaryLight: '#1a1a1a',
-  
+
   // Background Colors
   background: '#121212',
   surface: '#1e1e1e',
   card: '#2d2d2d',
-  
+
   // Text Colors
   text: '#ffffff',
   textSecondary: '#cccccc',
   textTertiary: '#999999',
-  
+
   // Status Colors
   success: '#4CAF50',
   warning: '#FF9800',
   error: '#f44336',
   info: '#2196F3',
-  
+
   // Border & Divider Colors
   border: '#404040',
   divider: '#2a2a2a',
-  
+
   // Overlay Colors
   overlay: 'rgba(0,0,0,0.8)',
   overlayLight: 'rgba(255,255,255,0.1)',
-  
+
   // Shadow Colors
   shadow: '#000000',
-  
+
   // Status Bar
   statusBar: 'light-content' as const,
   statusBarBg: '#1e1e1e',
-  
+
   // Theme Type
   isDark: true,
 };
@@ -196,8 +198,8 @@ export const darkTheme = {
 // Storage keys for persistent settings
 const STORAGE_KEYS = {
   SENSOR_STATES: 'sensor_states',
-  DATA_FREQUENCY:'data_freequency',
-  GPIO_ENABLED:'gpio_enabled',
+  DATA_FREQUENCY: 'data_freequency',
+  GPIO_ENABLED: 'gpio_enabled',
   SERVER_SITE_NAME: 'server_site_name',
   SELECTED_SIM: 'selected_sim',
   SELECTED_SENSOR: 'selected_sensor',
@@ -219,9 +221,9 @@ const DEFAULT_SENSOR_STATES = {
   'Weight Sensor': true,
   'Turbidity': true,
   'Switch 1': true,
-    'Switch 2': true,
-      'Ultrasonic Flow': true,
-      'Ultrasonic Flow2UFM2': true,
+  'Switch 2': true,
+  'Ultrasonic Flow': true,
+  'Ultrasonic Flow2UFM2': true,
 
 };
 
@@ -409,12 +411,12 @@ const formatDate = (date: Date | number | string, format: string) => {
 };
 
 // Memoized DeviceCard component
-const DeviceCard = React.memo(({ 
-  device, 
-  onConnect, 
-  onDisconnect, 
-  onPress, 
-  onDashboardPress 
+const DeviceCard = React.memo(({
+  device,
+  onConnect,
+  onDisconnect,
+  onPress,
+  onDashboardPress
 }: {
   device: any;
   onConnect: (device: any) => Promise<void>;
@@ -424,7 +426,7 @@ const DeviceCard = React.memo(({
 }) => {
   const [connecting, setConnecting] = useState(false);
   const { theme } = useTheme();
-  
+
   // Calculate color and text for RSSI
   const rssiInfo = useMemo(() => {
     let rssiColor = theme.textSecondary;
@@ -452,7 +454,7 @@ const DeviceCard = React.memo(({
       if (isConnected) {
         await onDisconnect(device);
       } else {
-      await onConnect(device);
+        await onConnect(device);
       }
     } catch (error) {
       console.error('Connection/Disconnection error:', error);
@@ -462,11 +464,11 @@ const DeviceCard = React.memo(({
   }, [isConnectable, connecting, isConnected, onConnect, onDisconnect, device]);
 
   return (
-    <TouchableOpacity 
-      onPress={() => isConnected ? onDashboardPress(device) : null} 
-      activeOpacity={isConnected ? 0.7 : 1} 
-      style={{ 
-        flex: 1, 
+    <TouchableOpacity
+      onPress={() => isConnected ? onDashboardPress(device) : null}
+      activeOpacity={isConnected ? 0.7 : 1}
+      style={{
+        flex: 1,
         opacity: isConnected ? 1 : 0.8,
         transform: [{ scale: connecting ? 0.98 : 1 }],
       }}
@@ -495,21 +497,21 @@ const DeviceCard = React.memo(({
             justifyContent: 'center',
             marginRight: 16,
             elevation: 2,
-          }}> 
+          }}>
             <Text style={{ color: rssiInfo.rssiColor, fontWeight: 'bold', fontSize: 16 }}>
               {device.rssi || '--'}
             </Text>
             <Text style={{ color: rssiInfo.rssiColor, fontSize: 10, fontWeight: '500' }}>
               dBm
             </Text>
-        </View>
+          </View>
 
           {/* Device Info */}
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <Text style={{ 
-                fontSize: 18, 
-                fontWeight: 'bold', 
+              <Text style={{
+                fontSize: 18,
+                fontWeight: 'bold',
                 color: theme.text,
                 flex: 1,
               }}>
@@ -525,13 +527,13 @@ const DeviceCard = React.memo(({
                   <Text style={{ fontSize: 10, color: theme.text, fontWeight: '600' }}>
                     CONNECTED
                   </Text>
-          </View>
+                </View>
               )}
-          </View>
-            
-            <Text style={{ 
-              fontSize: 12, 
-              color: theme.textSecondary, 
+            </View>
+
+            <Text style={{
+              fontSize: 12,
+              color: theme.textSecondary,
               marginBottom: 8,
               fontFamily: 'monospace',
             }}>
@@ -541,29 +543,29 @@ const DeviceCard = React.memo(({
             {/* Device Stats */}
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
               <Icon name="map-marker-distance" size={14} color={theme.textSecondary} />
-              <Text style={{ 
-                fontSize: 12, 
-                color: theme.textSecondary, 
-                marginLeft: 6 
+              <Text style={{
+                fontSize: 12,
+                color: theme.textSecondary,
+                marginLeft: 6
               }}>
                 Distance: {distance} m
               </Text>
             </View>
-            
+
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <Icon name="wifi" size={14} color={theme.textSecondary} />
-              <Text style={{ 
-                fontSize: 12, 
-                color: theme.textSecondary, 
-                marginLeft: 6 
+              <Text style={{
+                fontSize: 12,
+                color: theme.textSecondary,
+                marginLeft: 6
               }}>
                 Signal: {device.rssi || '--'} dBm
               </Text>
             </View>
 
-          {!isConnected && (
-              <View style={{ 
-                flexDirection: 'row', 
+            {!isConnected && (
+              <View style={{
+                flexDirection: 'row',
                 alignItems: 'center',
                 backgroundColor: theme.isDark ? '#2a2a2a' : '#fff3e0',
                 paddingHorizontal: 8,
@@ -571,23 +573,23 @@ const DeviceCard = React.memo(({
                 borderRadius: 6,
               }}>
                 <Icon name="lock" size={12} color={theme.warning} />
-                <Text style={{ 
-                  fontSize: 11, 
-                  color: theme.warning, 
-                  marginLeft: 6, 
-                  fontWeight: '500' 
+                <Text style={{
+                  fontSize: 11,
+                  color: theme.warning,
+                  marginLeft: 6,
+                  fontWeight: '500'
                 }}>
-                Connect to access dashboard
-              </Text>
-        </View>
-          )}
-        </View>
+                  Connect to access dashboard
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Action Buttons */}
-        <View style={{ 
-          flexDirection: 'row', 
-          alignItems: 'center', 
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
           justifyContent: 'space-between',
           marginTop: 16,
           paddingTop: 16,
@@ -610,8 +612,8 @@ const DeviceCard = React.memo(({
             >
               <Icon name="information" size={16} color={theme.text} />
             </TouchableOpacity>
-            
-          <TouchableOpacity
+
+            <TouchableOpacity
               style={{
                 backgroundColor: theme.isDark ? '#2a2a2a' : '#f0f0f0',
                 width: 36,
@@ -640,20 +642,20 @@ const DeviceCard = React.memo(({
               shadowRadius: 2,
             }}
             disabled={!isConnectable || connecting}
-              onPress={handleConnectDisconnect}
+            onPress={handleConnectDisconnect}
             activeOpacity={0.8}
           >
             {connecting ? (
               <ActivityIndicator size="small" color={theme.text} />
             ) : (
-            <Text style={{ 
-                color: theme.text, 
+              <Text style={{
+                color: theme.text,
                 fontWeight: 'bold',
                 fontSize: 12,
                 textAlign: 'center',
-            }}>
+              }}>
                 {isConnected ? 'DISCONNECT' : (isConnectable ? 'CONNECT' : 'Not Available')}
-            </Text>
+              </Text>
             )}
           </TouchableOpacity>
         </View>
@@ -675,8 +677,9 @@ async function requestPermissions() {
   }
 }
 
-function ScannerScreen({ navigation }: { navigation: any }) {
+const ScannerScreen = ({ navigation }: { navigation: any }) => {
   const [devices, setDevices] = useState<any[]>([]);
+  const [connectedDevices, setConnectedDevices] = useState<any[]>([]);
   const [scanning, setScanning] = useState(false);
   const [log, setLog] = useState('');
   const { theme } = useTheme();
@@ -684,146 +687,136 @@ function ScannerScreen({ navigation }: { navigation: any }) {
   useEffect(() => {
     requestPermissions();
     return () => {
-      // Stop any active scanning when component unmounts
       manager.stopDeviceScan();
+      console.log('✅ Stopped device scan on unmount');
     };
   }, []);
 
-  const scanForDevices = () => {
-    if (!manager) {
-      setLog('BLE Manager not initialized');
-      // Alert.alert('Error', 'Bluetooth manager not initialized. Please restart the app.');
+  const scanForDevices = async () => {
+    if (scanning) {
+      setLog('Scan already in progress');
+      console.log('⚠️ Scan already in progress');
       return;
     }
-    
-    setDevices([]);
+
+    if (!manager) {
+      setLog('BLE Manager not initialized');
+      console.error('❌ BLE Manager not initialized');
+      Alert.alert('Error', 'Bluetooth manager not initialized. Please restart the app.');
+      return;
+    }
+
     setScanning(true);
     setLog('Starting scan...');
-    
+    console.log('📡 Starting device scan');
 
-    
-    // Check if BLE is available
-    manager.state().then((state) => {
+    try {
+      // Check BLE state
+      const state = await manager.state();
       console.log('BLE State before scan:', state);
       if (state !== 'PoweredOn') {
-        setLog('Bluetooth is not available. State: ' + state);
+        setLog(`Bluetooth is not available. State: ${state}`);
+        console.warn(`⚠️ Bluetooth is not available. State: ${state}`);
         setScanning(false);
-
+        Alert.alert('Error', `Bluetooth is not available. State: ${state}`);
         return;
       }
-    }).catch((error) => {
-      console.error('Error checking BLE state:', error);
-      setLog('Error checking Bluetooth state: ' + error.message);
-      setScanning(false);
-      
-      return;
-    });
-    
-    try {
+
+      // Start scan
       manager.startDeviceScan(null, null, (error, device) => {
         if (error) {
-          console.error('Scan error:', error);
-          setLog('Scan error: ' + error.message);
+          console.error('❌ Scan error:', error);
+          setLog(`Scan error: ${error.message}`);
           setScanning(false);
-          
-
           return;
         }
-        if (device && device.id) {
-          console.log('Found device:', device.name || device.id);
-          
 
-          
+        if (device && device.id) {
+          console.log(`✅ Found device: ${device.name || device.id}`);
           setDevices(prev => {
-            if (prev.some(d => d.id === device.id)) return prev;
-            // Add device with default disconnected state and connectability check
+            // Skip duplicates and already connected devices
+            if (prev.some(d => d.id === device.id) || connectedDevices.some(d => d.id === device.id)) {
+              return prev;
+            }
             const newDevice = {
               ...device,
               isConnected: false,
               connectedDevice: null,
-              isConnectable: device.name && 
-                             device.name !== 'N/A' && 
-                             device.name.length > 0 && 
-                             device.name !== 'Unknown' &&
-                             device.name !== 'null'
+              isConnectable: device.name &&
+                device.name !== 'N/A' &&
+                device.name !== 'Unknown' &&
+                device.name !== 'null' &&
+                device.name.length > 0,
             };
             return [...prev, newDevice];
           });
         }
       });
-      
+
+      // Stop scan after 5 seconds
       setTimeout(() => {
         manager.stopDeviceScan();
         setScanning(false);
-        setLog('Scan completed. Found ' + devices.length + ' devices.');
-        
-
+        setLog(`Scan completed. Found ${devices.length} new devices, ${connectedDevices.length} connected.`);
+        console.log(`✅ Scan completed. Found ${devices.length} new devices, ${connectedDevices.length} connected.`);
       }, 5000);
     } catch (e: any) {
-      console.error('Scan start error:', e);
-      setLog('Failed to start scan: ' + (e instanceof Error ? e.message : String(e)));
+      console.error('❌ Scan start error:', e);
+      setLog(`Failed to start scan: ${e.message || String(e)}`);
       setScanning(false);
-      
-
     }
   };
 
   const connectToDevice = async (device: any) => {
-    setLog('Connecting to ' + (device.name || device.id));
-    
+    setLog(`Connecting to ${device.name || device.id}`);
+    console.log(`🔗 Connecting to ${device.name || device.id}`);
+
     try {
-      // Cancel any existing connection first
+      // Cancel any existing connection
       try {
         await manager.cancelDeviceConnection(device.id);
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (err) {
-        // Ignore cancel errors
+        console.warn('⚠️ Cancel connection error (ignored):', err);
       }
-      
-      // Connect with proper timeout
+
+      // Connect with timeout
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
-      
-      setLog('Connected to ' + (device.name || device.id));
-      
-      setDevices(prev => prev.map(d => 
-        d.id === device.id 
-          ? { ...d, isConnected: true, connectedDevice: connectedDevice }
-          : d
-      ));
+      console.log(`✅ Connected to ${device.name || device.id}`);
+
+      setLog(`Connected to ${device.name || device.id}`);
+      setConnectedDevices(prev => [
+        ...prev.filter(d => d.id !== device.id),
+        { ...device, isConnected: true, connectedDevice },
+      ]);
+      setDevices(prev => prev.filter(d => d.id !== device.id)); // Remove from scanned devices
     } catch (error: any) {
-      console.error('Connection error:', error);
-      setLog('Connection failed: ' + error.message);
-      
-      setDevices(prev => prev.map(d => 
-        d.id === device.id 
-          ? { ...d, isConnected: false, connectedDevice: null }
-          : d
-      ));
+      console.error('❌ Connection error:', error);
+      setLog(`Connection failed: ${error.message}`);
+      setDevices(prev =>
+        prev.map(d =>
+          d.id === device.id ? { ...d, isConnected: false, connectedDevice: null } : d
+        )
+      );
     }
   };
 
   const disconnectFromDevice = async (device: any) => {
-    setLog('Disconnecting from ' + (device.name || device.id));
-    
+    setLog(`Disconnecting from ${device.name || device.id}`);
+    console.log(`🔌 Disconnecting from ${device.name || device.id}`);
 
-    
     try {
       await manager.cancelDeviceConnection(device.id);
-      
-
-      
-      setLog('Disconnected from ' + (device.name || device.id));
-      
-      setDevices(prev => prev.map(d => 
-        d.id === device.id 
-          ? { ...d, isConnected: false, connectedDevice: null }
-          : d
-      ));
+      console.log(`✅ Disconnected from ${device.name || device.id}`);
+      setLog(`Disconnected from ${device.name || device.id}`);
+      setConnectedDevices(prev => prev.filter(d => d.id !== device.id));
+      setDevices(prev => [
+        ...prev,
+        { ...device, isConnected: false, connectedDevice: null },
+      ]);
     } catch (error: any) {
-      console.error('Disconnection error:', error);
-      setLog('Disconnection failed: ' + error.message);
-      
-
+      console.error('❌ Disconnection error:', error);
+      setLog(`Disconnection failed: ${error.message}`);
     }
   };
 
@@ -835,40 +828,41 @@ function ScannerScreen({ navigation }: { navigation: any }) {
     if (device.isConnected) {
       navigation.navigate('DeviceDashboard', { device });
     } else {
-      // Alert.alert(
-      //   'Device Not Connected',
-      //   'Please connect to the device first to access the dashboard.',
-      //   [
-      //     { text: 'OK', style: 'default' },
-      //     { 
-      //       text: 'Connect Now', 
-      //       style: 'default',
-      //       onPress: () => connectToDevice(device)
-      //     }
-      //   ]
-      // );
+      Alert.alert(
+        'Device Not Connected',
+        'Please connect to the device first to access the dashboard.',
+        [
+          { text: 'OK', style: 'default' },
+          {
+            text: 'Connect Now',
+            style: 'default',
+            onPress: () => connectToDevice(device),
+          },
+        ]
+      );
     }
   };
 
+  // Combine connected and scanned devices for display
+  const displayDevices = [...connectedDevices, ...devices];
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
-        translucent={true}
+      <StatusBar
+        backgroundColor={theme.statusBarBg}
+        barStyle={theme.statusBar}
+        translucent
       />
-      
-      {/* Enhanced Header */}
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.background, 
+      {/* Header */}
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.background,
         padding: scale(16),
         paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
       }}>
-        {/* Centered Logo */}
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Image 
+          <Image
             source={require('./src/assets/SWN_CHIEF_LOGO_FINAL.png')}
             style={{
               width: 140,
@@ -877,12 +871,12 @@ function ScannerScreen({ navigation }: { navigation: any }) {
             }}
           />
           <Text style={{ color: theme.textSecondary, fontSize: scaleFont(16), marginTop: 8, textAlign: 'center' }}>
-                      BLE Device Scanner
-                    </Text>
-                  </View>
+            BLE Device Scanner
+          </Text>
+        </View>
       </View>
 
-      {/* Enhanced Scan Control Section */}
+      {/* Scan Control Section */}
       <View style={{
         backgroundColor: theme.surface,
         margin: 16,
@@ -904,10 +898,10 @@ function ScannerScreen({ navigation }: { navigation: any }) {
             justifyContent: 'center',
             marginRight: 12,
           }}>
-            <Icon 
-              name={scanning ? "wifi" : "bluetooth"} 
-              size={18} 
-              color={theme.text} 
+            <Icon
+              name={scanning ? 'wifi' : 'bluetooth'}
+              size={18}
+              color={theme.text}
             />
           </View>
           <View style={{ flex: 1 }}>
@@ -920,8 +914,7 @@ function ScannerScreen({ navigation }: { navigation: any }) {
           </View>
         </View>
 
-        {/* Enhanced Scan Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={{
             backgroundColor: scanning ? theme.warning : theme.primary,
             borderRadius: 12,
@@ -936,8 +929,8 @@ function ScannerScreen({ navigation }: { navigation: any }) {
             shadowOpacity: scanning ? 0.3 : 0.4,
             shadowRadius: scanning ? 4 : 8,
             transform: [{ scale: scanning ? 0.98 : 1 }],
-          }} 
-          onPress={scanForDevices} 
+          }}
+          onPress={scanForDevices}
           disabled={scanning}
           activeOpacity={0.8}
         >
@@ -946,9 +939,9 @@ function ScannerScreen({ navigation }: { navigation: any }) {
           ) : (
             <Icon name="bluetooth" size={20} color={theme.text} style={{ marginRight: 12 }} />
           )}
-          <Text style={{ 
-            color: theme.text, 
-            fontSize: 16, 
+          <Text style={{
+            color: theme.text,
+            fontSize: 16,
             fontWeight: '600',
             textAlign: 'center',
           }}>
@@ -956,7 +949,6 @@ function ScannerScreen({ navigation }: { navigation: any }) {
           </Text>
         </TouchableOpacity>
 
-        {/* Scan Status Indicator */}
         {scanning && (
           <View style={{
             flexDirection: 'row',
@@ -977,11 +969,11 @@ function ScannerScreen({ navigation }: { navigation: any }) {
             <Text style={{ fontSize: 12, color: theme.textSecondary, fontWeight: '500' }}>
               Scanning in progress...
             </Text>
-      </View>
+          </View>
         )}
       </View>
 
-      {/* Enhanced Device List */}
+      {/* Device List */}
       <View style={{ flex: 1, paddingHorizontal: 16 }}>
         <View style={{
           flexDirection: 'row',
@@ -999,27 +991,27 @@ function ScannerScreen({ navigation }: { navigation: any }) {
             borderRadius: 12,
           }}>
             <Text style={{ fontSize: 12, color: theme.text, fontWeight: '600' }}>
-              {devices.length} found
+              {displayDevices.length} found
             </Text>
           </View>
         </View>
 
-      <FlatList
-        data={devices}
-        keyExtractor={(item, index) => `${item.id || 'unknown'}-${index}`}
-        renderItem={({ item }) => (
-            <DeviceCard 
-              device={item} 
-              onConnect={connectToDevice} 
+        <FlatList
+          data={displayDevices}
+          keyExtractor={(item, index) => `${item.id || 'unknown'}-${index}`}
+          renderItem={({ item }) => (
+            <DeviceCard
+              device={item}
+              onConnect={connectToDevice}
               onDisconnect={disconnectFromDevice}
               onPress={handleDevicePress}
               onDashboardPress={handleDashboardPress}
             />
           )}
           ListEmptyComponent={
-            <View style={{ 
-              alignItems: 'center', 
-              justifyContent: 'center', 
+            <View style={{
+              alignItems: 'center',
+              justifyContent: 'center',
               marginTop: 60,
               paddingHorizontal: 20,
             }}>
@@ -1034,18 +1026,18 @@ function ScannerScreen({ navigation }: { navigation: any }) {
               }}>
                 <Icon name="bluetooth-off" size={48} color={theme.textTertiary} />
               </View>
-              <Text style={{ 
-                fontSize: 20, 
-                color: theme.text, 
-                marginBottom: 8, 
+              <Text style={{
+                fontSize: 20,
+                color: theme.text,
+                marginBottom: 8,
                 textAlign: 'center',
                 fontWeight: '600',
               }}>
                 No devices found
               </Text>
-              <Text style={{ 
-                fontSize: 14, 
-                color: theme.textSecondary, 
+              <Text style={{
+                fontSize: 14,
+                color: theme.textSecondary,
                 textAlign: 'center',
                 lineHeight: 20,
               }}>
@@ -1053,19 +1045,19 @@ function ScannerScreen({ navigation }: { navigation: any }) {
               </Text>
             </View>
           }
-        contentContainerStyle={{ paddingBottom: 20 }}
+          contentContainerStyle={{ paddingBottom: 20 }}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       </View>
 
-      {/* Enhanced Log Display */}
+      {/* Log Display */}
       {log && (
-        <View style={{ 
-          backgroundColor: theme.isDark ? '#1a1a1a' : '#e3f2fd', 
-          marginHorizontal: 16, 
-          marginBottom: 16, 
-          padding: 16, 
+        <View style={{
+          backgroundColor: theme.isDark ? '#1a1a1a' : '#e3f2fd',
+          marginHorizontal: 16,
+          marginBottom: 16,
+          padding: 16,
           borderRadius: 12,
           borderLeftWidth: 4,
           borderLeftColor: theme.info,
@@ -1081,62 +1073,63 @@ function ScannerScreen({ navigation }: { navigation: any }) {
               Status Log
             </Text>
           </View>
-          <Text style={[styles.log, { color: theme.textSecondary, fontSize: 13 }]}>{log}</Text>
+          <Text style={{ color: theme.textSecondary, fontSize: 13 }}>{log}</Text>
         </View>
       )}
     </View>
   );
-}
+};
 
 function DeviceDashboardView({ route, navigation }: { route: any; navigation: any }) {
-  const { device } = route.params;
+  let { device } = route.params;
   const { currentTime } = useTimer();
   const { theme } = useTheme();
-  
+
   // Device Status State Variables
   const [isLoadingDeviceData, setIsLoadingDeviceData] = useState(true);
   // Device Status (live values)
-const [deviceStatusData, setDeviceStatusData] = useState({
-  deviceDate: new Date().toLocaleDateString(),  // maps to "date"
-  deviceTime: new Date().toLocaleTimeString(),  // maps to "time"
-  gsmSignalStrength: 0,                         // maps to "gsm_sig"
-  gsmPostStatus: 'off',                         // maps to "gsm_post_status"
-  batteryLevel: 0,                              // maps to "battery_lvl"
-  solarLevel: 0,                                // maps to "solar_lvl"
-  logCount: 0                                   // maps to "log_count"
-});
+  const [deviceStatusData, setDeviceStatusData] = useState({
+    deviceDate: new Date().toLocaleDateString(),  // maps to "date"
+    deviceTime: '',  // maps to "time"
+    gsmSignalStrength: 0,                         // maps to "gsm_sig"
+    gsmPostStatus: 'off',                         // maps to "gsm_post_status"
+    batteryLevel: 0,                              // maps to "battery_lvl"
+    solarLevel: 0,                                // maps to "solar_lvl"
+    logCount: 0                                   // maps to "log_count"
+  });
 
-// Device Config (static configuration)
-const [deviceConfigData, setDeviceConfigData] = useState({
-  IMEI_num: '',                 // maps to IMEI_num
-  Servr_name: '',               // maps to Servr_name
-  Fr_vr: '',                    // maps to Fr_vr
-  data_freq: 0,                 // maps to data_freq
-  date_fr: 'DD-MM-YYYY',        // maps to date_fr
-  time_fr: 'HH:MM:SS',          // maps to time_fr
-  lat: 0,                       // maps to lat
-  lon: 0,                       // maps to lon
-  gpio_extender_enabled: 'No',  // maps to gpio_extender_enabled
-  gsm_sim_name: ''              // maps to gsm_sim_name
-});
+  // Device Config (static configuration)
+  const [deviceConfigData, setDeviceConfigData] = useState({
+    IMEI_num: '',                 // maps to IMEI_num
+    Servr_name: '',               // maps to Servr_name
+    Fr_vr: '',                    // maps to Fr_vr
+    data_freq: 0,                 // maps to data_freq
+    date_fr: 'DD-MM-YYYY',        // maps to date_fr
+    time_fr: 'HH:MM:SS',          // maps to time_fr
+    lat: 0,                        // maps to lat
+    lon: 0,                       // maps to lon
+    gpio_extender_enabled: 0,  // maps to gpio_extender_enabled
+    gsm_sim_name: ''              // maps to gsm_sim_name
+  });
 
   const [deviceServerSiteName, setDeviceServerSiteName] = useState('');
   const [logsIMEI, setLogsIMEI] = useState('');
   const [sensorConfigData, setSensorConfigData] = useState<any>({});
+
   const [rawSensorData, setRawSensorData] = useState<string>('');
   const [showSensorDataPopup, setShowSensorDataPopup] = useState(false);
-  
+
   // Refresh Pop-up State
   const [showRefreshPopup, setShowRefreshPopup] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState(0);
   const [refreshStatus, setRefreshStatus] = useState('');
-  
+
   // UI State
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
   const drawerAnimation = useRef(new Animated.Value(0)).current;
   const [serverSiteName, setServerSiteName] = useState('Site-001');
-    const [gpio_enabled, set_gpio_enabled] = useState(0);
-    const[dataFreequncy,setDataFreequency]=useState(0)
+  const [gpio_enabled, set_gpio_enabled] = useState(0);
+  const [dataFreequncy, setDataFreequency] = useState(0)
   // Drawer animation functions
   const openDrawer = () => {
     setShowSettingsDrawer(true);
@@ -1163,136 +1156,301 @@ const [deviceConfigData, setDeviceConfigData] = useState({
   const [selectedSim, setSelectedSim] = useState('Jio');
   const [selectedSensor, setSelectedSensor] = useState('Chlorine level');
   const [selectedDateFormat, setSelectedDateFormat] = useState('DD/MM/YYYY HH:mm:ss');
-  
 
-  
+  const subscriptionRef = useRef(null);
+
   const [sensorStates, setSensorStates] = useState(DEFAULT_SENSOR_STATES);
 
-useEffect(() => {
-  // Fetch fresh data on component mount
-  const fetchInitialData = async () => {
-    await refreshAllDeviceData();  // <-- same function you use for manual refresh
-  };
-  
-  fetchInitialData()
+  async function startListening(deviceId: string, serviceUUID: string, characteristicUUID: string) {
+    try {
+      // Cancel any existing connection
+      
 
-}, []);
+      // Connect to device
+      if(!device){
+
+      Alert.alert('Device not connected')
+      const device = await manager.connectToDevice(deviceId, { timeout: 15000 });
+      console.log('✅ Connected to device:', deviceId);
+      }else{
+        device=device.connectedDevice;
+      }  
+      // Discover services and characteristics with retries
+      let attempts = 3;
+      while (attempts > 0) {
+        try {
+          await device.discoverAllServicesAndCharacteristics();
+          const services = await device.services();
+          if (services.length === 0) {
+            throw new Error('No services found after discovery');
+          }
+          console.log('✅ Services discovered:', services.map(s => s.uuid));
+          break;
+        } catch (discoveryError) {
+          console.warn(`⚠️ Discovery attempt ${4 - attempts} failed:`, discoveryError);
+          attempts--;
+          if (attempts === 0) throw discoveryError;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      // Verify service exists
+      const services = await device.services();
+      let targetServiceUUID = serviceUUID.toLowerCase();
+      const serviceExists = services.some(s => s.uuid.toLowerCase() === targetServiceUUID);
+      if (!serviceExists) {
+        throw new Error(`Service ${targetServiceUUID} not found`);
+      }
+
+      // Verify characteristic exists
+      const characteristics = await device.characteristicsForService(targetServiceUUID);
+      const charExists = characteristics.some(c => c.uuid.toLowerCase() === characteristicUUID.toLowerCase());
+      if (!charExists) {
+        throw new Error(`Characteristic ${characteristicUUID} not found in service ${targetServiceUUID}`);
+      }
+      console.log('✅ Characteristic found:', characteristicUUID);
+
+      // Monitor characteristic for notifications
+      let responseBuffer = '';
+      subscriptionRef.current = device.monitorCharacteristicForService(
+        targetServiceUUID,
+        characteristicUUID,
+        (error, characteristic) => {
+          if (error) {
+            console.error('❌ Notification error:', error);
+            if (error.message.includes('Device was disconnected') || error.message.includes('not found')) {
+              // Handle disconnection gracefully
+            }
+            return;
+          }
+
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('📩 Received chunk:', chunk);
+            responseBuffer += chunk;
+
+            // Process complete messages
+            while (responseBuffer.includes('{') && responseBuffer.includes('}')) {
+              const start = responseBuffer.indexOf('{');
+              const end = responseBuffer.indexOf('}') + 1;
+              const completeMessage = responseBuffer.substring(start, end);
+
+              if (completeMessage.startsWith('{S_Name')) {
+                // Handle sensor data
+                console.log('📡 Sensor data received:', completeMessage);
+                const sensorData = parseSensorData(completeMessage);
+                if (sensorData) {
+                  setSensorConfigData(sensorData);
+                  saveToStorage('sensor_config_data', parseSensorConfigForCalliberation(completeMessage));
+                  console.log('✅ Saved sensor data:', sensorData);
+                } else {
+                  console.warn('❌ Failed to parse sensor data:', completeMessage);
+                }
+              } else if (completeMessage.startsWith('{$device_config$')) {
+                // Handle device configuration
+                console.log('⚙️ Device config received:', completeMessage);
+                const configData = parseDeviceConfig(completeMessage);
+                if (configData) {
+                  setDeviceConfigData(prev => ({ ...prev, ...configData }));
+                  saveToStorage('device_config', parseDeviceConfig(completeMessage));
+                  console.log('✅ Updated device config:', configData);
+                } else {
+                  console.warn('❌ Failed to parse device config:', completeMessage);
+                }
+              } else if (completeMessage.startsWith('{$device_status$')) {
+                // Handle device status
+                console.log('📊 Device status received:', completeMessage);
+                const statusData = parseDeviceStatus(completeMessage);
+                if (statusData) {
+                  // Map time to deviceTime
+                  const transformedStatusData = {
+                    ...statusData,
+                    ...(statusData.time ? { deviceTime: statusData.time } : {}),
+                    ...(statusData.battery_lvl ? { batteryLevel: statusData.battery_lvl } : {}),
+                    ...(statusData.gsm_post_status ? { gsmPostStatus: statusData.gsm_post_status } : {}),
+                    ...(statusData.gsm_sig ? { gsmSignalStrength: statusData.gsm_sig } : {}),
+                    ...(statusData.solar_lvl ? { solarLevel: statusData.solar_lvl } : {}),
+                  };
+                  delete transformedStatusData.time; // Remove original time key if it exists
+                  setDeviceStatusData(prev => ({ ...prev, ...transformedStatusData }));
+                  saveToStorage('device_config', statusData);
+                  console.log('✅ Updated device status:', transformedStatusData);
+                } else {
+                  console.warn('❌ Failed to parse device status:', completeMessage);
+                }
+              } else {
+                console.warn('⚠️ Ignoring unknown message:', completeMessage);
+              }
+
+              responseBuffer = responseBuffer.substring(end);
+            }
+          }
+        }
+      );
+      console.log('✅ Subscribed to notifications for characteristic:', characteristicUUID);
+    } catch (error) {
+      console.error('❌ Failed to start listening:', error);
+      throw error;
+    }
+  }
+
+
+
+
+  // useEffect(()=>
+  //   {
+  //   const listen=async()=>{
+
+  //   await startListening(device.id, SERVICE_UUID, F3_NOTIFY_UUID);
+  //   }
+  //   listen()
+  // },[])
+
+
+  useEffect(() => {
+    // Fetch fresh data on component mount
+    const fetchInitialData = async () => {
+      await refreshAllDeviceData();  // <-- same function you use for manual refresh
+      if (!manager || !device?.id) {
+        console.error('❌ Manager or device ID is not available.');
+        return;
+      }
+
+      try {
+        await startListening(device.id, SERVICE_UUID, F3_NOTIFY_UUID);
+        console.log('✅ Listening started successfully.');
+      } catch (error) {
+        console.error('❌ Failed to start listening from useEffect:', error);
+      }
+
+
+    };
+
+
+
+    fetchInitialData()
+
+
+    console.log("==deviceee", device)
+
+
+  }, []);
 
   // Comprehensive refresh function with pop-up
   // Utility to wait
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Generic step runner with retry support
-const runStep = async (
-  label: string,
-  progress: number,
-  fn: () => Promise<any>,
-  retry: boolean = true
-) => {
-  setRefreshStatus(label);
-  setRefreshProgress(progress);
+  // Generic step runner withLogs retry support
+  const runStep = async (
+    label: string,
+    progress: number,
+    fn: () => Promise<any>,
+    retry: boolean = true
+  ) => {
+    setRefreshStatus(label);
+    setRefreshProgress(progress);
 
-  try {
-    await fn();
-    console.log(`✅ ${label} completed`);
-    return true;
-  } catch (err) {
-    console.log(`⚠️ ${label} failed:`, err);
-    if (retry) {
-      console.log(`🔄 Retrying ${label}...`);
-      await sleep(1000);
-      try {
-        await fn();
-        console.log(`✅ ${label} retry successful`);
-        return true;
-      } catch (err2) {
-        console.log(`❌ ${label} retry failed:`, err2);
-      }
-    }
-    return false;
-  }
-};
-
-const refreshAllDeviceData = async (showPopup: boolean = true) => {
-  if (!device) {
-    console.log('❌ No device available for refresh');
-    return;
-  }
-
-  console.log('=== STARTING COMPREHENSIVE DEVICE REFRESH ===');
-
-  if (showPopup) {
-    setShowRefreshPopup(true);
-    setRefreshProgress(0);
-    setRefreshStatus('Initializing connection...');
-  }
-
-  try {
-    // Ensure device is connected (retry once if needed)
-    const ensureConnected = async () => {
-      try {
-        const isConnected = await device.isConnected();
-        if (!isConnected) {
-          console.log('🔌 Device disconnected, connecting...');
-          await device.connect();
-          await sleep(2000); // allow stabilization
+    try {
+      await fn();
+      console.log(`✅ ${label} completed`);
+      return true;
+    } catch (err) {
+      console.log(`⚠️ ${label} failed:`, err);
+      if (retry) {
+        console.log(`🔄 Retrying ${label}...`);
+        await sleep(1000);
+        try {
+          await fn();
+          console.log(`✅ ${label} retry successful`);
+          return true;
+        } catch (err2) {
+          console.log(`❌ ${label} retry failed:`, err2);
         }
-      } catch (err) {
-        console.log('⚠️ Error while connecting, retrying once...', err);
-        await device.connect;
-        await sleep(2000);
       }
-    };
+      return false;
+    }
+  };
 
-    await ensureConnected();
-
-    // Sequential fetches (with connection check before each critical step)
-    await runStep('Fetching device status...', 25, async () => {
-      await ensureConnected();
-      return fetchDeviceStatus();
-    });
-
-    await runStep('Fetching device configuration...', 50, async () => {
-      await ensureConnected();
-      return fetchDeviceConfig();
-    });
-
-    await runStep('Fetching sensor data...', 75, async () => {
-      await ensureConnected();
-      console.log("_______________________________________________--------------------------__________________",device)
-      return fetchSensorData();
-    });
-
-    
-
-    // Final validation
-    setRefreshStatus('Validating data...');
-
-    // Success
-    setRefreshStatus('Refresh completed successfully!');
-
-    if (showPopup) {
-      setTimeout(() => {
-        setShowRefreshPopup(false);
-        setRefreshProgress(0);
-        setRefreshStatus('');
-      }, 2000);
+  const refreshAllDeviceData = async (showPopup: boolean = true) => {
+    if (!device) {
+      console.log('❌ No device available for refresh');
+      return;
     }
 
-    console.log('=== DEVICE REFRESH COMPLETED SUCCESSFULLY ===');
-  } catch (error: any) {
-    console.error('❌ Error during device refresh:', error);
-    setRefreshStatus(`Error: ${error.message}`);
+    console.log('=== STARTING COMPREHENSIVE DEVICE REFRESH ===');
 
     if (showPopup) {
-      setTimeout(() => {
-        setShowRefreshPopup(false);
-        setRefreshProgress(0);
-        setRefreshStatus('');
-      }, 3000);
+      setShowRefreshPopup(true);
+      setRefreshProgress(0);
+      setRefreshStatus('Initializing connection...');
     }
-  }
-};
+
+    try {
+      // Ensure device is connected (retry once if needed)
+      const ensureConnected = async () => {
+        try {
+          const isConnected = await device.isConnected;
+          if (!isConnected) {
+            console.log('🔌 Device disconnected, connecting...');
+            await device.connect();
+
+          }
+        } catch (err) {
+          console.log('⚠️ Error while connecting, retrying once...', err);
+          await device.connect;
+          await sleep(2000);
+        }
+      };
+
+      await ensureConnected();
+
+      // Sequential fetches (with connection check before each critical step)
+      await runStep('Fetching device status...', 25, async () => {
+        await ensureConnected();
+        return fetchDeviceStatus();
+      });
+
+      await runStep('Fetching device configuration...', 50, async () => {
+        await ensureConnected();
+        return fetchDeviceConfig();
+      });
+
+      await runStep('Fetching sensor data...', 75, async () => {
+        await ensureConnected();
+        console.log("_______________________________________________--------------------------__________________", device)
+        return fetchSensorData();
+      });
+
+
+
+      // Final validation
+      setRefreshStatus('Validating data...');
+
+      // Success
+      setRefreshStatus('Refresh completed successfully!');
+
+      if (showPopup) {
+        setTimeout(() => {
+          setShowRefreshPopup(false);
+          setRefreshProgress(0);
+          setRefreshStatus('');
+        }, 2000);
+      }
+      await startListening(device.id, SERVICE_UUID, F3_NOTIFY_UUID)
+      console.log('=== DEVICE REFRESH COMPLETED SUCCESSFULLY ===');
+    } catch (error: any) {
+      console.error('❌ Error during device refresh:', error);
+      setRefreshStatus(`Error: ${error.message}`);
+
+      if (showPopup) {
+        setTimeout(() => {
+          setShowRefreshPopup(false);
+          setRefreshProgress(0);
+          setRefreshStatus('');
+        }, 3000);
+      }
+    }
+  };
 
 
 
@@ -1312,7 +1470,7 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
   //       console.log('✅ Initial auto-fetch completed');
   //     }
   //   };
-    
+
   //   fetchDeviceData();
   // }, [device, autoFetchCompleted]);
 
@@ -1328,14 +1486,15 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
   const parseDeviceStatus = (data: string) => {
     try {
       console.log('Raw device status data received:', data);
-      
+
       // Remove { } wrapper and split by comma
-      const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+      let cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+      cleanData = cleanData.replace(/^\$?device_status\$/i, '').trim();
       console.log('Cleaned data:', cleanData);
-      
+
       const pairs = cleanData.split(',');
       const statusData: any = {};
-      
+
       pairs.forEach(pair => {
         const [key, value] = pair.split(':');
         if (key && value !== undefined) {
@@ -1345,7 +1504,7 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
           console.log(`Parsed: ${cleanKey} = ${cleanValue}`);
         }
       });
-      
+
       console.log('Final parsed status data:', statusData);
       return statusData;
     } catch (error) {
@@ -1359,23 +1518,23 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
     try {
       const encoded = Buffer.from(command, 'utf8');
       console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
-      
+
       for (let i = 0; i < encoded.length; i += chunkSize) {
         const chunk = encoded.slice(i, i + chunkSize);
         const base64Chunk = chunk.toString('base64');
-        
-        console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
-        
+
+        console.log(`Sending chunk ${Math.floor(i / chunkSize) + 1}: ${chunk.toString('utf8')}`);
+
         await device.writeCharacteristicWithoutResponseForService(
           SERVICE_UUID,
           F1_WRITE_UUID,
           base64Chunk
         );
-        
+
         // Small delay between chunks
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      
+
       console.log('Command sent successfully in chunks');
       return true;
     } catch (error) {
@@ -1389,12 +1548,12 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
     return new Promise((resolve, reject) => {
       let responseData = '';
       let timeoutId: NodeJS.Timeout;
-      
+
       const timeout = setTimeout(() => {
         console.log('Device status response timeout');
         reject(new Error('Device status response timeout'));
       }, 10000); // 10 second timeout
-      
+
       device.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
@@ -1405,19 +1564,19 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
             reject(error);
             return;
           }
-          
+
           if (characteristic && characteristic.value) {
             const newValue = Buffer.from(characteristic.value, 'base64').toString('utf8');
             console.log('Received F3 data:', newValue);
-            
+
             responseData += newValue;
-            
+
             // Check if we have a complete message (wrapped in {})
             if (responseData.includes('{') && responseData.includes('}')) {
               const start = responseData.indexOf('{');
               const end = responseData.indexOf('}') + 1;
               const completeMessage = responseData.substring(start, end);
-              
+
               console.log('Complete device status message:', completeMessage);
               clearTimeout(timeout);
               resolve(completeMessage);
@@ -1430,220 +1589,657 @@ const refreshAllDeviceData = async (showPopup: boolean = true) => {
 
   // Main function to fetch device status
   const fetchDeviceStatus = async () => {
-  if (!device) {
-    console.log('❌ No device available');
-    return;
-  }
+    if (!device) {
+      console.log('❌ No device available');
+      return;
+    }
 
-  setIsLoadingDeviceData(true);
-  console.log('🚀 Starting device status fetch...');
+    setIsLoadingDeviceData(true);
+    console.log('🚀 Starting device status fetch...');
 
-  try {
-    // Cancel old connection
     try {
-      await manager.cancelDeviceConnection(device.id);
-      await new Promise(res => setTimeout(res, 500));
-    } catch {
-      // ignore cancel errors
-    }
-
-    // Connect
-    console.log('🔌 Connecting to device...');
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log('✅ Device connected & services discovered');
-
-    // Commands to try
-    const commands = ['{$send_device_status}', 'send_device_status', 'device_status', 'status'];
-    let response: string | null = null;
-
-    for (const cmd of commands) {
+      // Cancel old connection
       try {
-        console.log(`➡️ Sending command: ${cmd}`);
-        const sent = await sendCommandInChunks(connectedDevice, cmd);
-        if (!sent) continue;
-
-        response = await monitorF3ForDeviceStatus(connectedDevice);
-        if (response) {
-          console.log(`✅ Got response for: ${cmd}`);
-          break;
-        }
-      } catch (err: any) {
-        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+        await manager.cancelDeviceConnection(device.id);
+        await new Promise(res => setTimeout(res, 500));
+      } catch {
+        // ignore cancel errors
       }
+
+      // Connect
+      console.log('🔌 Connecting to device...');
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Device connected & services discovered', connectedDevice.discoverAllServicesAndCharacteristics());
+      console.log('✅ Device connected & services discovered');
+
+      // Commands to try
+      const commands = ['{$send_device_status}', 'send_device_status', 'device_status', 'status'];
+      let response: string | null = null;
+
+      for (const cmd of commands) {
+        try {
+          console.log(`➡️ Sending command: ${cmd}`);
+          const sent = await sendCommandInChunks(connectedDevice, cmd);
+          if (!sent) continue;
+
+          response = await monitorF3ForDeviceStatus(connectedDevice);
+          if (response) {
+            console.log(`✅ Got response for: ${cmd}`);
+            break;
+          }
+        } catch (err: any) {
+          console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+        }
+      }
+
+      if (!response) {
+        console.log('❌ No response from device status command');
+        return;
+      }
+
+      console.log('📥 Raw response:', response);
+      const statusData = parseDeviceStatus(response);
+
+      if (!statusData) {
+        console.log('❌ Could not parse device status data');
+        return;
+      }
+
+      // === Mapping fields ===
+      const batteryLevel = parseFloat(
+        statusData.battery_lvl || statusData.battery || '0'
+      ) || 0;
+
+      const gsmSignalStrength = parseFloat(
+        statusData.gsm_sig || statusData.gsm_signal_strength || '0'
+      ) || 0;
+
+      const gsmPostStatus = statusData.gsm_post_status || 'off';
+
+      const deviceDate =
+        statusData.date ||
+        statusData.device_date ||
+        new Date().toLocaleDateString();
+
+      let deviceTime =
+        statusData.time ||
+        statusData.device_time ||
+        new Date().toLocaleTimeString();
+
+      // Normalize time if numeric only
+      if (deviceTime) {
+
+        deviceTime = `${deviceTime}`;
+      }
+
+      const solarLevel = parseFloat(statusData.solar_lvl || '0') || 0;
+      const logCount = parseInt(statusData.log_count || '0') || 0;
+
+      // From config if not in status
+      const latitude =
+        deviceConfigData.lat;
+      const longitude =
+        deviceConfigData.lon;
+
+      const newStatusData = {
+        batteryLevel,
+        gsmSignal: gsmSignalStrength > 0 ? 'active' : 'inactive',
+        gsmSignalStrength,
+        gsmPostStatus,
+        deviceDate,
+        deviceTime,
+        solarLevel,
+        logCount,
+        latitude,
+        longitude
+      };
+
+      console.log('✅ Parsed Device Status:', newStatusData);
+      await saveToStorage('time', deviceTime);
+      setDeviceStatusData(newStatusData);
+    } catch (err: any) {
+      console.log('❌ Error fetching device status:', err.message);
+    } finally {
+      setIsLoadingDeviceData(false);
     }
-
-    if (!response) {
-      console.log('❌ No response from device status command');
-      return;
-    }
-
-    console.log('📥 Raw response:', response);
-    const statusData = parseDeviceStatus(response);
-
-    if (!statusData) {
-      console.log('❌ Could not parse device status data');
-      return;
-    }
-
-    // === Mapping fields ===
-    const batteryLevel = parseFloat(
-      statusData.battery_lvl || statusData.battery || '0'
-    ) || 0;
-
-    const gsmSignalStrength = parseFloat(
-      statusData.gsm_sig || statusData.gsm_signal_strength || '0'
-    ) || 0;
-
-    const gsmPostStatus = statusData.gsm_post_status || 'off';
-
-    const deviceDate =
-      statusData.date ||
-      statusData.device_date ||
-      new Date().toLocaleDateString();
-
-    let deviceTime =
-      statusData.time ||
-      statusData.device_time ||
-      new Date().toLocaleTimeString();
-
-    // Normalize time if numeric only
-    if (deviceTime && !deviceTime.includes(':')) {
-      const minutes = statusData.minutes || '00';
-      const seconds = statusData.seconds || '00';
-      deviceTime = `${deviceTime}:${minutes}:${seconds}`;
-    }
-
-    const solarLevel = parseFloat(statusData.solar_lvl || '0') || 0;
-    const logCount = parseInt(statusData.log_count || '0') || 0;
-
-    // From config if not in status
-    const latitude =
-      deviceConfigData.lat;
-    const longitude =
-      deviceConfigData.lon ;
-
-    const newStatusData = {
-      batteryLevel,
-      gsmSignal: gsmSignalStrength > 0 ? 'active' : 'inactive',
-      gsmSignalStrength,
-      gsmPostStatus,
-      deviceDate,
-      deviceTime,
-      solarLevel,
-      logCount,
-      latitude,
-      longitude
-    };
-
-    console.log('✅ Parsed Device Status:', newStatusData);
-    setDeviceStatusData(newStatusData);
-  } catch (err: any) {
-    console.log('❌ Error fetching device status:', err.message);
-  } finally {
-    setIsLoadingDeviceData(false);
-  }
-};
+  };
 
 
   // Function to fetch device configuration data
   const fetchDeviceConfig = async () => {
-  if (!device) {
-    console.log("No device available for config fetch");
-    return;
-  }
-
-  console.log("=== STARTING DEVICE CONFIG FETCH ===");
-
-  try {
-    // 🔹 Always ensure a fresh connection
-    console.log("Getting fresh connection for config fetch...");
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-    console.log("✅ Device connected successfully for config fetch");
-
-    // 🔹 Verify connection is stable
-    if (!connectedDevice || !connectedDevice.isConnected) {
-      throw new Error("Device connection failed");
-    }
-
-    // 🔹 Discover services + characteristics
-    console.log("Discovering services and characteristics...");
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log("✅ Services discovered successfully for config fetch");
-
-    // 🔹 Commands to try (kept minimal, avoid duplicate entries)
-    const commandsToTry = [
-      "{$send_device_config}",
-    ];
-
-    let response: string | null = null;
-    let successfulCommand: string | null = null;
-
-    for (const command of commandsToTry) {
-      try {
-        console.log(`➡️ Sending config command: "${command}"`);
-
-        // Step 1: Send command
-        const sentOk = await sendCommandInChunks(connectedDevice, command);
-        if (!sentOk) {
-          console.log(`❌ Failed to send command: "${command}"`);
-          continue;
-        }
-
-        // Step 2: Wait for response from F3
-        console.log(`⏳ Waiting for response from F3 for "${command}"...`);
-        response = await monitorF3ForDeviceConfig(connectedDevice);
-
-        if (response) {
-          console.log(`✅ Response received for "${command}"`);
-          successfulCommand = command;
-          break; // stop after first success
-        }
-      } catch (err: any) {
-        console.log(`⚠️ Command "${command}" failed: ${err.message}`);
-      }
-    }
-
-    if (!response) {
-      console.log("❌ No config response received from any command");
+    if (!device) {
+      console.log("No device available for config fetch");
       return;
     }
 
-    console.log(`🎯 Successful command: "${successfulCommand}"`);
-    console.log("📦 Raw config response:", response);
+    console.log("=== STARTING DEVICE CONFIG FETCH ===");
 
-    // Step 3: Parse and update config
-    const configData = parseDeviceConfig(response);
-    if (configData) {
-      console.log("✅ Parsed config:", configData);
-      setDeviceConfigData(configData); // store in state
-    } else {
-      console.log("❌ Failed to parse config response");
+    try {
+      // 🔹 Always ensure a fresh connection
+      console.log("Getting fresh connection for config fetch...");
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      console.log("✅ Device connected successfully for config fetch");
+
+      // 🔹 Verify connection is stable
+      if (!connectedDevice || !connectedDevice.isConnected) {
+        throw new Error("Device connection failed");
+      }
+
+      // 🔹 Discover services + characteristics
+      console.log("Discovering services and characteristics...");
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log("✅ Services discovered successfully for config fetch");
+
+      // 🔹 Commands to try (kept minimal, avoid duplicate entries)
+      const commandsToTry = [
+        "{$send_device_config}",
+      ];
+
+      let response: string | null = null;
+      let successfulCommand: string | null = null;
+
+      for (const command of commandsToTry) {
+        try {
+          console.log(`➡️ Sending config command: "${command}"`);
+
+          // Step 1: Send command
+          const sentOk = await sendCommandInChunks(connectedDevice, command);
+          if (!sentOk) {
+            console.log(`❌ Failed to send command: "${command}"`);
+            continue;
+          }
+
+          // Step 2: Wait for response from F3
+          console.log(`⏳ Waiting for response from F3 for "${command}"...`);
+          response = await monitorF3ForDeviceConfig(connectedDevice);
+
+          if (response) {
+            console.log(`✅ Response received for "${command}"`);
+            successfulCommand = command;
+            break; // stop after first success
+          }
+        } catch (err: any) {
+          console.log(`⚠️ Command "${command}" failed: ${err.message}`);
+        }
+      }
+
+      if (!response) {
+        console.log("❌ No config response received from any command");
+        return;
+      }
+
+      console.log(`🎯 Successful command: "${successfulCommand}"`);
+      console.log("📦 Raw config response:", response);
+
+      // Step 3: Parse and update config
+      const configData = parseDeviceConfig(response);
+      if (configData) {
+        console.log("✅ Parsed config:", configData);
+        setDeviceConfigData(configData); // store in state
+      } else {
+        console.log("❌ Failed to parse config response");
+      }
+    } catch (err: any) {
+      console.log("❌ Error during config fetch:", err.message || err);
     }
-  } catch (err: any) {
-    console.log("❌ Error during config fetch:", err.message || err);
-  }
 
-  console.log("=== DEVICE CONFIG FETCH COMPLETED ===");
-};
+    console.log("=== DEVICE CONFIG FETCH COMPLETED ===");
+  };
 
 
   // Function to monitor F3 for device config response
-const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null> => {
-  return new Promise((resolve, reject) => {
-    let responseBuffer = '';
-    let timeoutHandle: any;
+  const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null> => {
+    return new Promise((resolve, reject) => {
+      let responseBuffer = '';
+      let timeoutHandle: any;
+
+      try {
+        console.log('Subscribing to F3 for device config...');
+
+        const subscription = connectedDevice.monitorCharacteristicForService(
+          SERVICE_UUID,
+          F3_NOTIFY_UUID,
+          (error, characteristic) => {
+            if (error) {
+              console.log('Error monitoring F3:', error);
+              clearTimeout(timeoutHandle);
+              subscription.remove();
+              reject(error);
+              return;
+            }
+
+            if (characteristic?.value) {
+              const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+              console.log('Received config chunk:', chunk);
+
+              responseBuffer += chunk;
+
+              // ✅ Stop condition: JSON end marker
+              if (responseBuffer.trim().endsWith('}')) {
+                clearTimeout(timeoutHandle);
+                subscription.remove();
+                resolve(responseBuffer);
+              }
+            }
+          }
+        );
+
+        // Fallback timeout
+        timeoutHandle = setTimeout(() => {
+          console.log('Config fetch timed out, returning partial data:', responseBuffer);
+          subscription.remove();
+          resolve(responseBuffer || null);
+        }, 8000);
+
+      } catch (err) {
+        console.log('Error in monitorF3ForDeviceConfig:', err);
+        reject(err);
+      }
+    });
+  };
+
+
+
+
+  // Function to parse device configuration data
+  const parseDeviceConfig = (data: string) => {
+    try {
+      console.log('Parsing device config data:', data);
+
+      // ✅ Step 1: Remove outer braces
+      let cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+
+      // ✅ Step 2: Remove the $device_config$ prefix if it exists
+      cleanData = cleanData.replace(/^\$?device_config\$/i, '').trim();
+      console.log('Cleaned config data:', cleanData);
+
+      // ✅ Step 3: Split by comma
+      const pairs = cleanData.split(',');
+      const configData: any = {};
+
+      pairs.forEach(pair => {
+        const [key, value] = pair.split(':');
+        if (key && value !== undefined) {
+          const cleanKey = key.trim();
+          const cleanValue = value.trim();
+          configData[cleanKey] = cleanValue;
+          console.log(`Config parsed: ${cleanKey} = ${cleanValue}`);
+        }
+      });
+
+      console.log('Final parsed config data:', configData);
+
+      // ✅ Extract and update all configuration values
+      const serverSiteName =
+        configData.Servr_name ||
+        configData.Server ||
+        configData.server ||
+        configData.Server_site ||
+        configData.server_site ||
+        '';
+      if (serverSiteName) {
+        setDeviceServerSiteName(serverSiteName);
+        console.log('Device server site name extracted:', serverSiteName);
+
+        if (setServerSiteName) {
+          setServerSiteName(serverSiteName);
+          console.log('Updated parent component with fresh server site name from config:', serverSiteName);
+        }
+
+        saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
+        console.log('Updated local storage with fresh server site name from config:', serverSiteName);
+      }
+
+      const simName =
+        configData.gsm_sim_name ||
+        configData.gsm_sim ||
+        configData.sim_name ||
+        '';
+      if (simName) {
+        console.log('Device SIM name extracted:', simName);
+        setSelectedSim(simName);
+        console.log('Updated dashboard selectedSim with fresh device data:', simName);
+        saveToStorage(STORAGE_KEYS.SELECTED_SIM, simName);
+        console.log('Updated local storage with fresh SIM name from config:', simName);
+      }
+
+      const dataFreq = configData.data_freq || configData.data_frequency || '';
+      if (dataFreq) {
+        setDataFreequency(dataFreq / 60)
+        saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, dataFreequncy)
+        console.log('Device data frequency extracted:', dataFreq);
+      }
+
+      const dateFormat = configData.date_fr || configData.date_format || '';
+      if (dateFormat) {
+        console.log('Device date format extracted:', dateFormat);
+        setSelectedDateFormat(dateFormat);
+        console.log('Updated dashboard selectedDateFormat with fresh device data:', dateFormat);
+        saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, dateFormat);
+        console.log('Updated local storage with fresh date format from config:', dateFormat);
+      }
+
+      const timeFormat = configData.time_fr || configData.time_format || '';
+      if (timeFormat) {
+        console.log('Device time format extracted:', timeFormat);
+      }
+
+      const gpioEnabled = configData.gpio_extender_enabled || '0';
+      if (gpioEnabled) {
+        saveToStorage(STORAGE_KEYS.GPIO_ENABLED, gpioEnabled)
+        set_gpio_enabled(gpioEnabled)
+        console.log('Device GPIO extender status extracted:', gpioEnabled);
+      }
+
+      return configData;
+    } catch (error) {
+      console.log('Error parsing device config:', error);
+      return null;
+    }
+  };
+
+
+  // Function to fetch sensor data (current readings)
+  let isFetchingSensor = false; // 🚦 Prevent parallel fetches
+  const utf8ToBase64 = (str: string): string => {
+    return Buffer.from(str, "utf8").toString("base64");
+  };
+
+  // Convert Base64 → UTF-8 string
+  const base64ToUtf8 = (b64: string): string => {
+    return Buffer.from(b64, "base64").toString("utf8");
+  };
+
+  const fetchSensorData = async () => {
+    if (!device) {
+      console.log('❌ No device available');
+      return;
+    }
+
+    if (isFetchingSensor) return;
+    isFetchingSensor = true;
+
+    console.log('🚀 Starting sensor data fetch...');
 
     try {
-      console.log('Subscribing to F3 for device config...');
+      // Cancel old connection
+      try {
+        await manager.cancelDeviceConnection(device.id);
+        await new Promise(res => setTimeout(res, 500));
+      } catch {
+        // ignore cancel errors
+      }
+
+      // Connect
+      console.log('🔌 Connecting to device...');
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Device connected & services discovered');
+
+      // Commands to try
+      const commands = ['{$send_sensor_data}'];
+      let response: string | null = null;
+      let successfulCommand: string | null = null;
+
+      for (const cmd of commands) {
+        try {
+          console.log(`➡️ Sending command: ${cmd}`);
+          await sendCommandInChunks(connectedDevice, cmd);
+
+          response = await monitorF3ForSensorConfig(connectedDevice);
+          if (response) {
+            console.log(`✅ Got response for: ${cmd}`);
+            successfulCommand = cmd;
+            const sensorData = parseSensorData(response);
+            if (sensorData) {
+              console.log("✅ Parsed sensordata:", sensorData);
+              setSensorConfigData(sensorData); // store in state
+              await saveToStorage('sensor_config_data', parseSensorConfigForCalliberation(response))
+            } else {
+              console.log("❌ Failed to parse config response");
+            }
+            break;
+          }
+        } catch (err: any) {
+          console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
+        }
+      }
+
+      if (!response) {
+        console.log('❌ No sensor data response received from device');
+        return;
+      }
+
+      console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
+      return response;
+
+    } catch (err: any) {
+      console.log('❌ Error fetching sensor config:', err.message);
+      throw err;
+    } finally {
+      isFetchingSensor = false;
+    }
+  };
+
+
+  const parseSensorConfigForCalliberation = (data: string) => {
+    try {
+      console.log('Parsing sensor config data:', data);
+
+      // Remove { } wrapper
+      const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+      console.log('Cleaned sensor config data:', cleanData);
+
+      const sensorData: {
+        [key: string]: {
+          offset: number;
+          scale: number;
+          is_en: number;
+          val: number;
+          rs485: boolean;
+          response: string;
+          sensorName: string;
+        };
+      } = {};
+      const keyNames: string[] = []; // Array to store just the Key values
+
+      // Use while loop to find all S_Name:%s patterns
+      let currentData = cleanData;
+      let startIndex = 0;
+
+      while (true) {
+        // Find next S_Name: occurrence
+        const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+        if (sNameIndex === -1) break; // No more S_Name: found
+
+        // Find the end of this sensor entry (next S_Name: or end of string)
+        const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+        const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+
+        // Extract this sensor entry
+        const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+        console.log('Processing sensor entry:', sensorEntry);
+
+        try {
+          // Parse the sensor name (everything before first comma)
+          const commaIndex = sensorEntry.indexOf(',');
+          if (commaIndex === -1) {
+            console.log('Skipping sensor entry with no comma');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          const sensorName = sensorEntry.substring(0, commaIndex).trim();
+          console.log('Found sensor name:', sensorName);
+
+          // Skip entries with empty S_Name
+          if (!sensorName) {
+            console.log('Skipping sensor entry with empty S_Name');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          // Parse the key (Key:<value>)
+          const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+          const key = keyMatch ? keyMatch[1].trim() : '';
+
+          // Skip entries with empty Key
+          if (!key) {
+            console.log('Skipping sensor entry with empty Key');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          // Handle duplicate keys
+          const existingCount = keyNames.filter(name => name === key).length;
+          const uniqueSensorKey = existingCount > 0 ? `${key}_${existingCount + 1}` : key;
+          keyNames.push(uniqueSensorKey);
+
+          // Extract other fields
+          const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+          const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+          const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
+          const valMatch = sensorEntry.match(/Val:([^,}]+)/);
+          const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
+          const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+
+          sensorData[uniqueSensorKey] = {
+            offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
+            scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
+            is_en: isEnMatch ? parseFloat(isEnMatch[1]) : 0,
+            val: valMatch ? parseFloat(valMatch[1]) : 0,
+            rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
+            response: responseMatch ? responseMatch[1] : 'Unknown',
+            sensorName, // Preserve S_Name for reference
+          };
+
+          console.log(
+            `Parsed sensor: ${uniqueSensorKey}, Offset: ${sensorData[uniqueSensorKey].offset
+            }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${sensorData[uniqueSensorKey].is_en
+            }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${sensorData[uniqueSensorKey].rs485
+            }, Response: ${sensorData[uniqueSensorKey].response}, SensorName: ${sensorData[uniqueSensorKey].sensorName
+            }`
+          );
+        } catch (sensorError) {
+          console.log('Error parsing individual sensor:', sensorError);
+        }
+
+        // Move to next position
+        startIndex = sNameIndex + 7;
+      }
+
+      console.log('Final parsed sensor config:', sensorData);
+      return sensorData;
+    } catch (error) {
+      console.log('Error parsing sensor config:', error);
+      return {};
+    }
+  };
+
+  // const parseSensorConfigForCalliberation = (data: string) => {
+  //     try {
+  //       console.log('Parsing sensor config data:', data);
+
+  //       // Remove { } wrapper
+  //       const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+  //       console.log('Cleaned sensor config data:', cleanData);
+
+  //       const sensorData: any = {};
+  //       const sensorNames: string[] = []; // Array to store just the sensor names
+
+  //       // Use while loop to find all S_Name:%s patterns
+  //       let currentData = cleanData;
+  //       let startIndex = 0;
+
+  //       while (true) {
+  //         // Find next S_Name: occurrence
+  //         const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+  //         if (sNameIndex === -1) break; // No more S_Name: found
+
+  //         // Find the end of this sensor entry (next S_Name: or end of string)
+  //         const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+  //         const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+
+  //         // Extract this sensor entry
+  //         const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+  //         console.log('Processing sensor entry:', sensorEntry);
+
+  //         try {
+  //           // Parse the sensor name (everything before first comma)
+  //           const commaIndex = sensorEntry.indexOf(',');
+  //           if (commaIndex !== -1) {
+  //             const sensorName = sensorEntry.substring(0, commaIndex).trim();
+  //             console.log('Found sensor name:', sensorName);
+
+  //             if (sensorName) {
+  //               // Count how many times this sensor name appears to handle duplicates
+  //               const existingCount = sensorNames.filter(name => name === sensorName).length;
+  //               const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
+
+  //               sensorNames.push(uniqueSensorKey);
+
+  //               // Try to extract offset and scale
+  //               const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+  //               const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+  //               const is_enMatch=sensorEntry.match(/is_en:([^,}]+)/)
+  //               if (offsetMatch && scaleMatch) {
+  //                 const offset = parseFloat(offsetMatch[1]);
+  //                 const scale = parseFloat(scaleMatch[1]);
+  //                 const isEnabled=parseFloat(is_enMatch[1]);
+  //                 sensorData[uniqueSensorKey] = {
+  //                   name: uniqueSensorKey,
+  //                   offset: offset,
+  //                   scale: scale,
+  //                   is_en:isEnabled
+  //                 };
+
+  //                 console.log(`Parsed sensor: ${uniqueSensorKey}, Offset: ${offset}, Scale: ${scale}`);
+  //               } else {
+  //                 // If no offset/scale, just store the name
+  //                 sensorData[uniqueSensorKey] = {
+  //                   name: uniqueSensorKey,
+  //                   offset: 0,
+  //                   scale: 1
+  //                 };
+  //               }
+  //             }
+  //           }
+  //         } catch (sensorError) {
+  //           console.log('Error parsing individual sensor:', sensorError);
+  //         }
+
+  //         // Move to next position
+  //         startIndex = sNameIndex + 7;
+  //       }
+
+  //       // Update the sensor states with actual sensor names from device
+
+
+  //       console.log('Final parsed sensor config:', sensorData);
+  //       return sensorData;
+  //     } catch (error) {
+  //       console.log('Error parsing sensor config:', error);
+  //       return null;
+  //     }
+  //   };
+
+  // Function to monitor F3 for sensor config response
+  const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      let responseData = '';
+      const timeoutId = setTimeout(() => {
+        console.log('Sensor config response timeout');
+        reject(new Error('Sensor config response timeout'));
+      }, 10000);
 
       const subscription = connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
         (error, characteristic) => {
           if (error) {
-            console.log('Error monitoring F3:', error);
-            clearTimeout(timeoutHandle);
+            console.log('F3 monitoring error (sensor config):', error);
+            clearTimeout(timeoutId);
             subscription.remove();
             reject(error);
             return;
@@ -1651,506 +2247,70 @@ const monitorF3ForDeviceConfig = async (connectedDevice): Promise<string | null>
 
           if (characteristic?.value) {
             const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
-            console.log('Received config chunk:', chunk);
+            console.log('Received F3 data (sensor config):', chunk);
+            responseData += chunk;
 
-            responseBuffer += chunk;
+            if (responseData.includes('{') && responseData.includes('}')) {
+              const start = responseData.indexOf('{');
+              const end = responseData.indexOf('}') + 1;
+              const completeMessage = responseData.substring(start, end);
 
-            // ✅ Stop condition: JSON end marker
-            if (responseBuffer.trim().endsWith('}')) {
-              clearTimeout(timeoutHandle);
+              console.log('Complete sensor config message:', completeMessage);
+              clearTimeout(timeoutId);
               subscription.remove();
-              resolve(responseBuffer);
+              resolve(completeMessage);
             }
           }
         }
       );
-
-      // Fallback timeout
-      timeoutHandle = setTimeout(() => {
-        console.log('Config fetch timed out, returning partial data:', responseBuffer);
-        subscription.remove();
-        resolve(responseBuffer || null);
-      }, 8000);
-
-    } catch (err) {
-      console.log('Error in monitorF3ForDeviceConfig:', err);
-      reject(err);
-    }
-  });
-};
-
-
-
-
-  // Function to parse device configuration data
-  const parseDeviceConfig = (data: string) => {
-  try {
-    console.log('Parsing device config data:', data);
-
-    // ✅ Step 1: Remove outer braces
-    let cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-
-    // ✅ Step 2: Remove the $device_config$ prefix if it exists
-    cleanData = cleanData.replace(/^\$?device_config\$/i, '').trim();
-    console.log('Cleaned config data:', cleanData);
-
-    // ✅ Step 3: Split by comma
-    const pairs = cleanData.split(',');
-    const configData: any = {};
-
-    pairs.forEach(pair => {
-      const [key, value] = pair.split(':');
-      if (key && value !== undefined) {
-        const cleanKey = key.trim();
-        const cleanValue = value.trim();
-        configData[cleanKey] = cleanValue;
-        console.log(`Config parsed: ${cleanKey} = ${cleanValue}`);
-      }
     });
-
-    console.log('Final parsed config data:', configData);
-
-    // ✅ Extract and update all configuration values
-    const serverSiteName =
-      configData.Servr_name ||
-      configData.Server ||
-      configData.server ||
-      configData.Server_site ||
-      configData.server_site ||
-      '';
-    if (serverSiteName) {
-      setDeviceServerSiteName(serverSiteName);
-      console.log('Device server site name extracted:', serverSiteName);
-
-      if (setServerSiteName) {
-        setServerSiteName(serverSiteName);
-        console.log('Updated parent component with fresh server site name from config:', serverSiteName);
-      }
-
-      saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
-      console.log('Updated local storage with fresh server site name from config:', serverSiteName);
-    }
-
-    const simName =
-      configData.gsm_sim_name ||
-      configData.gsm_sim ||
-      configData.sim_name ||
-      '';
-    if (simName) {
-      console.log('Device SIM name extracted:', simName);
-      setSelectedSim(simName);
-      console.log('Updated dashboard selectedSim with fresh device data:', simName);
-      saveToStorage(STORAGE_KEYS.SELECTED_SIM, simName);
-      console.log('Updated local storage with fresh SIM name from config:', simName);
-    }
-
-    const dataFreq = configData.data_freq || configData.data_frequency || '';
-    if (dataFreq) {
-      setDataFreequency(dataFreq)
-      saveToStorage(STORAGE_KEYS.DATA_FREQUENCY,dataFreequncy)
-      console.log('Device data frequency extracted:', dataFreq);
-    }
-
-    const dateFormat = configData.date_fr || configData.date_format || '';
-    if (dateFormat) {
-      console.log('Device date format extracted:', dateFormat);
-      setSelectedDateFormat(dateFormat);
-      console.log('Updated dashboard selectedDateFormat with fresh device data:', dateFormat);
-      saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, dateFormat);
-      console.log('Updated local storage with fresh date format from config:', dateFormat);
-    }
-
-    const timeFormat = configData.time_fr || configData.time_format || '';
-    if (timeFormat) {
-      console.log('Device time format extracted:', timeFormat);
-    }
-
-    const gpioEnabled = configData.gpio_extender_enabled || '0';
-    if (gpioEnabled) {
-      saveToStorage(STORAGE_KEYS.GPIO_ENABLED,gpioEnabled)
-      set_gpio_enabled(gpioEnabled)
-      console.log('Device GPIO extender status extracted:', gpioEnabled);
-    }
-
-    return configData;
-  } catch (error) {
-    console.log('Error parsing device config:', error);
-    return null;
-  }
-};
-
-
-  // Function to fetch sensor data (current readings)
-  let isFetchingSensor = false; // 🚦 Prevent parallel fetches
-const utf8ToBase64 = (str: string): string => {
-  return Buffer.from(str, "utf8").toString("base64");
-};
-
-// Convert Base64 → UTF-8 string
-const base64ToUtf8 = (b64: string): string => {
-  return Buffer.from(b64, "base64").toString("utf8");
-};
-
-const fetchSensorData = async () => {
-  if (!device) {
-    console.log('❌ No device available');
-    return;
-  }
-
-  if (isFetchingSensor) return;
-  isFetchingSensor = true;
-
-  console.log('🚀 Starting sensor data fetch...');
-
-  try {
-    // Cancel old connection
-    try {
-      await manager.cancelDeviceConnection(device.id);
-      await new Promise(res => setTimeout(res, 500));
-    } catch {
-      // ignore cancel errors
-    }
-
-    // Connect
-    console.log('🔌 Connecting to device...');
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log('✅ Device connected & services discovered');
-
-    // Commands to try
-    const commands = ['{$send_sensor_data}'];
-    let response: string | null = null;
-    let successfulCommand: string | null = null;
-
-    for (const cmd of commands) {
-      try {
-        console.log(`➡️ Sending command: ${cmd}`);
-        await sendCommandInChunks(connectedDevice, cmd);
-
-        response = await monitorF3ForSensorConfig(connectedDevice);
-        if (response) {
-          console.log(`✅ Got response for: ${cmd}`);
-          successfulCommand = cmd;
-        const sensorData = parseSensorData(response);
-    if (sensorData) {
-      console.log("✅ Parsed sensordata:", sensorData);
-      setSensorConfigData(sensorData); // store in state
-      await saveToStorage('sensor_config_data',parseSensorConfigForCalliberation(response))
-    } else {
-      console.log("❌ Failed to parse config response");
-    }
-          break;
-        }
-      } catch (err: any) {
-        console.log(`⚠️ Command ${cmd} failed: ${err.message}`);
-      }
-    }
-
-    if (!response) {
-      console.log('❌ No sensor data response received from device');
-      return;
-    }
-
-    console.log(`📦 Raw sensor config response for "${successfulCommand}":`, response);
-    return response;
-
-  } catch (err: any) {
-    console.log('❌ Error fetching sensor config:', err.message);
-    throw err;
-  } finally {
-    isFetchingSensor = false;
-  }
-};
-
-const parseSensorConfigForCalliberation = (data: string) => {
-  try {
-    console.log('Parsing sensor config data:', data);
-
-    // Remove { } wrapper
-    const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-    console.log('Cleaned sensor config data:', cleanData);
-
-    const sensorData: {
-      [key: string]: {
-        key: string;
-        offset: number;
-        scale: number;
-        is_en: number;
-        val: number;
-        rs485: boolean;
-        response: string;
-      };
-    } = {};
-    const sensorNames: string[] = []; // Array to store just the sensor names
-
-    // Use while loop to find all S_Name:%s patterns
-    let currentData = cleanData;
-    let startIndex = 0;
-
-    while (true) {
-      // Find next S_Name: occurrence
-      const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-      if (sNameIndex === -1) break; // No more S_Name: found
-
-      // Find the end of this sensor entry (next S_Name: or end of string)
-      const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
-      const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-
-      // Extract this sensor entry
-      const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
-      console.log('Processing sensor entry:', sensorEntry);
-
-      try {
-        // Parse the sensor name (everything before first comma)
-        const commaIndex = sensorEntry.indexOf(',');
-        if (commaIndex === -1) {
-          console.log('Skipping sensor entry with no comma');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        const sensorName = sensorEntry.substring(0, commaIndex).trim();
-        console.log('Found sensor name:', sensorName);
-
-        // Skip entries with empty S_Name
-        if (!sensorName) {
-          console.log('Skipping sensor entry with empty S_Name');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        // Parse the key (Key:<value>)
-        const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
-        const key = keyMatch ? keyMatch[1].trim() : '';
-
-        // Skip entries with empty Key
-        if (!key) {
-          console.log('Skipping sensor entry with empty Key');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        // Handle duplicate sensor names
-        const existingCount = sensorNames.filter(name => name === sensorName).length;
-        const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-        sensorNames.push(uniqueSensorKey);
-
-        // Extract other fields
-        const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-        const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-        const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
-        const valMatch = sensorEntry.match(/Val:([^,}]+)/);
-        const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
-        const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
-
-        sensorData[uniqueSensorKey] = {
-          key,
-          offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
-          scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
-          is_en: parseFloat(isEnMatch[1]),
-          val: valMatch ? parseFloat(valMatch[1]) : 0,
-          rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
-          response: responseMatch ? responseMatch[1] : 'Unknown',
-        };
-
-        console.log(
-          `Parsed sensor: ${uniqueSensorKey}, Key: ${sensorData[uniqueSensorKey].key}, Offset: ${
-            sensorData[uniqueSensorKey].offset
-          }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${
-            sensorData[uniqueSensorKey].is_en
-          }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${
-            sensorData[uniqueSensorKey].rs485
-          }, Response: ${sensorData[uniqueSensorKey].response}`
-        );
-      } catch (sensorError) {
-        console.log('Error parsing individual sensor:', sensorError);
-      }
-
-      // Move to next position
-      startIndex = sNameIndex + 7;
-    }
-
-    console.log('Final parsed sensor config:', sensorData);
-    return sensorData;
-  } catch (error) {
-    console.log('Error parsing sensor config:', error);
-    return {};
-  }
-};
-// const parseSensorConfigForCalliberation = (data: string) => {
-//     try {
-//       console.log('Parsing sensor config data:', data);
-      
-//       // Remove { } wrapper
-//       const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-//       console.log('Cleaned sensor config data:', cleanData);
-      
-//       const sensorData: any = {};
-//       const sensorNames: string[] = []; // Array to store just the sensor names
-      
-//       // Use while loop to find all S_Name:%s patterns
-//       let currentData = cleanData;
-//       let startIndex = 0;
-      
-//       while (true) {
-//         // Find next S_Name: occurrence
-//         const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-//         if (sNameIndex === -1) break; // No more S_Name: found
-        
-//         // Find the end of this sensor entry (next S_Name: or end of string)
-//         const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
-//         const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-        
-//         // Extract this sensor entry
-//         const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
-//         console.log('Processing sensor entry:', sensorEntry);
-        
-//         try {
-//           // Parse the sensor name (everything before first comma)
-//           const commaIndex = sensorEntry.indexOf(',');
-//           if (commaIndex !== -1) {
-//             const sensorName = sensorEntry.substring(0, commaIndex).trim();
-//             console.log('Found sensor name:', sensorName);
-            
-//             if (sensorName) {
-//               // Count how many times this sensor name appears to handle duplicates
-//               const existingCount = sensorNames.filter(name => name === sensorName).length;
-//               const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-              
-//               sensorNames.push(uniqueSensorKey);
-              
-//               // Try to extract offset and scale
-//               const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-//               const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-//               const is_enMatch=sensorEntry.match(/is_en:([^,}]+)/)
-//               if (offsetMatch && scaleMatch) {
-//                 const offset = parseFloat(offsetMatch[1]);
-//                 const scale = parseFloat(scaleMatch[1]);
-//                 const isEnabled=parseFloat(is_enMatch[1]);
-//                 sensorData[uniqueSensorKey] = {
-//                   name: uniqueSensorKey,
-//                   offset: offset,
-//                   scale: scale,
-//                   is_en:isEnabled
-//                 };
-                
-//                 console.log(`Parsed sensor: ${uniqueSensorKey}, Offset: ${offset}, Scale: ${scale}`);
-//               } else {
-//                 // If no offset/scale, just store the name
-//                 sensorData[uniqueSensorKey] = {
-//                   name: uniqueSensorKey,
-//                   offset: 0,
-//                   scale: 1
-//                 };
-//               }
-//             }
-//           }
-//         } catch (sensorError) {
-//           console.log('Error parsing individual sensor:', sensorError);
-//         }
-        
-//         // Move to next position
-//         startIndex = sNameIndex + 7;
-//       }
-      
-//       // Update the sensor states with actual sensor names from device
-    
-      
-//       console.log('Final parsed sensor config:', sensorData);
-//       return sensorData;
-//     } catch (error) {
-//       console.log('Error parsing sensor config:', error);
-//       return null;
-//     }
-//   };
-
-  // Function to monitor F3 for sensor config response
-const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    let responseData = '';
-    const timeoutId = setTimeout(() => {
-      console.log('Sensor config response timeout');
-      reject(new Error('Sensor config response timeout'));
-    }, 10000);
-
-    const subscription = connectedDevice.monitorCharacteristicForService(
-      SERVICE_UUID,
-      F3_NOTIFY_UUID,
-      (error, characteristic) => {
-        if (error) {
-          console.log('F3 monitoring error (sensor config):', error);
-          clearTimeout(timeoutId);
-          subscription.remove();
-          reject(error);
-          return;
-        }
-
-        if (characteristic?.value) {
-          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
-          console.log('Received F3 data (sensor config):', chunk);
-          responseData += chunk;
-
-          if (responseData.includes('{') && responseData.includes('}')) {
-            const start = responseData.indexOf('{');
-            const end = responseData.indexOf('}') + 1;
-            const completeMessage = responseData.substring(start, end);
-
-            console.log('Complete sensor config message:', completeMessage);
-            clearTimeout(timeoutId);
-            subscription.remove();
-            resolve(completeMessage);
-          }
-        }
-      }
-    );
-  });
-};
+  };
 
 
 
 
   // Function to parse sensor configuration data
-const parseSensorData = (rawResponse: string) => {
-  try {
-    // 1. Strip outer braces and trailing commas
-    let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
+  const parseSensorData = (rawResponse: string) => {
+    try {
+      // 1. Strip outer braces and trailing commas
+      let clean = rawResponse.trim().replace(/^{|}$/g, "").replace(/,+$/, "");
 
-    // 2. Split by commas, then into key:value pairs
-    const tokens = clean.split(/,(?=S_Name:|Key:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
+      // 2. Split by commas, then into key:value pairs
+      const tokens = clean.split(/,(?=S_Name:|Key:|Val:|is_en:|Offset:|Scale:|RS485:|Response:)/);
 
-    const sensors: any[] = [];
-    let current: any = {};
+      const sensors: any[] = [];
+      let current: any = {};
 
-    tokens.forEach(token => {
-      const [key, value] = token.split(":");
+      tokens.forEach(token => {
+        const [key, value] = token.split(":");
 
-      if (key === "S_Name" && Object.keys(current).length > 0) {
-        // start of new sensor → push previous
+        if (key === "S_Name" && Object.keys(current).length > 0) {
+          // start of new sensor → push previous
+          sensors.push(current);
+          current = {};
+        }
+
+        current[key.trim()] = value?.trim() || "";
+      });
+
+      // push last one
+      if (Object.keys(current).length > 0) {
         sensors.push(current);
-        current = {};
       }
 
-      current[key.trim()] = value?.trim() || "";
-    });
-
-    // push last one
-    if (Object.keys(current).length > 0) {
-      sensors.push(current);
+      return sensors;
+    } catch (err) {
+      console.error("❌ Failed to parse sensor data:", err);
+      return [];
     }
-
-    return sensors;
-  } catch (err) {
-    console.error("❌ Failed to parse sensor data:", err);
-    return [];
-  }
-};
+  };
 
 
   // Function to extract IMEI from logs data
   const extractIMEIFromLogs = (logsData: string) => {
     try {
       console.log('Extracting IMEI from data:', logsData);
-      
+
       // Try multiple IMEI patterns
       const patterns = [
         /IMEI:([^,}]+)/,           // IMEI:123456789
@@ -2170,7 +2330,7 @@ const parseSensorData = (rawResponse: string) => {
         /"imei_number":"([^"]+)"/, // "imei_number":"123456789"
         /'imei_number':'([^']+)'/, // 'imei_number':'123456789'
       ];
-      
+
       for (const pattern of patterns) {
         const match = logsData.match(pattern);
         if (match && match[1]) {
@@ -2179,14 +2339,14 @@ const parseSensorData = (rawResponse: string) => {
           return extracted;
         }
       }
-      
+
       // If no pattern matches, try to find any 15-digit number (typical IMEI length)
       const digitMatch = logsData.match(/\b\d{15}\b/);
       if (digitMatch) {
         console.log('IMEI found as 15-digit number:', digitMatch[0]);
         return digitMatch[0];
       }
-      
+
       console.log('No IMEI pattern found in data');
       return '';
     } catch (error) {
@@ -2219,26 +2379,26 @@ const parseSensorData = (rawResponse: string) => {
       console.log('No device available to fetch server site name');
       return;
     }
-    
+
     try {
       console.log('Fetching server site name from device...');
-      
+
       // Cancel any existing connection first
-          try {
-            await manager.cancelDeviceConnection(device.id);
+      try {
+        await manager.cancelDeviceConnection(device.id);
         await new Promise(resolve => setTimeout(resolve, 1000));
-          } catch (err) {
+      } catch (err) {
         // Ignore cancel errors
       }
-      
+
       // Connect with proper timeout
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       console.log('Connected to device for server site name fetch');
-      
+
       // Discover services once
-        await connectedDevice.discoverAllServicesAndCharacteristics();
-        console.log('Services discovered successfully');
-      
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('Services discovered successfully');
+
       // Send command to get server site name - try different command formats based on Arduino code
       const commands = [
         '{$send_server_site}',
@@ -2248,7 +2408,7 @@ const parseSensorData = (rawResponse: string) => {
         '{$get_server_site}',
         '{$get_server_site_name}'
       ];
-      
+
       let commandSent = false;
       for (const command of commands) {
         console.log(`Trying command: ${command}`);
@@ -2258,18 +2418,18 @@ const parseSensorData = (rawResponse: string) => {
           break;
         }
       }
-      
+
       if (!commandSent) {
         console.log('Failed to send server site name command');
         return;
       }
-      
+
       // Monitor F3 for response
       let responseData = '';
       const timeout = setTimeout(() => {
         console.log('Server site name response timeout');
       }, 10000);
-      
+
       connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
@@ -2279,22 +2439,22 @@ const parseSensorData = (rawResponse: string) => {
             clearTimeout(timeout);
             return;
           }
-          
+
           if (characteristic && characteristic.value) {
             const newValue = Buffer.from(characteristic.value, 'base64').toString('utf8');
             console.log('Received server site name data:', newValue);
-            
+
             responseData += newValue;
-            
+
             // Check if we have a complete message
             if (responseData.includes('{') && responseData.includes('}')) {
               const start = responseData.indexOf('{');
               const end = responseData.indexOf('}') + 1;
               const completeMessage = responseData.substring(start, end);
-              
+
               console.log('Complete server site name message:', completeMessage);
               clearTimeout(timeout);
-              
+
               // Extract server site name from different possible formats based on Arduino response
               const serverSitePatterns = [
                 /Server:([^,}]+)/,  // Matches Server:NODE_001 format
@@ -2306,7 +2466,7 @@ const parseSensorData = (rawResponse: string) => {
                 /Server_site_name:([^,}]+)/,
                 /server_site_name:([^,}]+)/
               ];
-              
+
               let extractedServerSite = '';
               for (const pattern of serverSitePatterns) {
                 const match = completeMessage.match(pattern);
@@ -2316,17 +2476,17 @@ const parseSensorData = (rawResponse: string) => {
                   break;
                 }
               }
-              
+
               if (extractedServerSite) {
                 setDeviceServerSiteName(extractedServerSite);
                 console.log('Server site name extracted from device:', extractedServerSite);
-                
+
                 // 🔥 NEW: Update parent components and local storage with fresh device data
                 if (setServerSiteName) {
                   setServerSiteName(extractedServerSite);
                   console.log('Updated parent component with fresh server site name:', extractedServerSite);
                 }
-                
+
                 // Update local storage with fresh device data
                 saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, extractedServerSite);
                 console.log('Updated local storage with fresh server site name:', extractedServerSite);
@@ -2337,7 +2497,7 @@ const parseSensorData = (rawResponse: string) => {
           }
         }
       );
-      
+
     } catch (error: any) {
       console.error('Error fetching server site name from device:', error);
     }
@@ -2346,29 +2506,29 @@ const parseSensorData = (rawResponse: string) => {
   // Function to fetch IMEI using command '4'
   const fetchIMEIWithCommand4 = async () => {
     if (!device) return;
-    
+
     try {
       console.log('Fetching IMEI using command "4"...');
-      
+
       // Connect to device
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
+
       // Send command '4' for IMEI
       const commandSent = await sendCommandInChunks(connectedDevice, '4');
-      
+
       if (!commandSent) {
         console.log('Error: Failed to send command "4"');
         return;
       }
-      
+
       // Monitor F3 for IMEI response
       let responseData = '';
       const timeout = setTimeout(() => {
         console.log('IMEI response timeout');
         console.log('Timeout: No IMEI response received from command "4"');
       }, 10000);
-      
+
       connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
@@ -2378,22 +2538,22 @@ const parseSensorData = (rawResponse: string) => {
             clearTimeout(timeout);
             return;
           }
-          
+
           if (characteristic && characteristic.value) {
             const newValue = Buffer.from(characteristic.value, 'base64').toString('utf8');
             console.log('Received IMEI data from command "4":', newValue);
-            
+
             responseData += newValue;
-            
+
             // Check if we have a complete message
             if (responseData.includes('{') && responseData.includes('}')) {
               const start = responseData.indexOf('{');
               const end = responseData.indexOf('}') + 1;
               const completeMessage = responseData.substring(start, end);
-              
+
               console.log('Complete IMEI message from command "4":', completeMessage);
               clearTimeout(timeout);
-              
+
               // Show raw response for debugging
               console.log('Raw Response from Command "4":', completeMessage);
               // Extract IMEI from response
@@ -2404,39 +2564,39 @@ const parseSensorData = (rawResponse: string) => {
           }
         }
       );
-      
+
     } catch (error: any) {
       console.log('Error fetching IMEI with command "4":', error);
-              console.log(`Error: Failed to fetch IMEI: ${error.message}`);
+      console.log(`Error: Failed to fetch IMEI: ${error.message}`);
     }
   };
 
   // Function to fetch logs and extract IMEI (legacy method)
   const fetchLogsIMEI = async () => {
     if (!device) return;
-    
+
     try {
       console.log('Fetching logs to extract IMEI...');
-      
+
       // Connect to device
       const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
+
       // Send logs command
       const commandSent = await sendCommandInChunks(connectedDevice, '{$send_logs}');
-      
+
       if (!commandSent) {
         console.log('Error: Failed to send logs command');
         return;
       }
-      
+
       // Monitor F3 for logs response
       let responseData = '';
       const timeout = setTimeout(() => {
         console.log('Logs response timeout');
         console.log('Timeout: No logs response received');
       }, 10000);
-      
+
       connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
@@ -2446,35 +2606,35 @@ const parseSensorData = (rawResponse: string) => {
             clearTimeout(timeout);
             return;
           }
-          
+
           if (characteristic && characteristic.value) {
             const newValue = Buffer.from(characteristic.value, 'base64').toString('utf8');
             console.log('Received logs data:', newValue);
-            
+
             responseData += newValue;
-            
+
             // Check if we have a complete message
             if (responseData.includes('{') && responseData.includes('}')) {
               const start = responseData.indexOf('{');
               const end = responseData.indexOf('}') + 1;
               const completeMessage = responseData.substring(start, end);
-              
+
               console.log('Complete logs message:', completeMessage);
               clearTimeout(timeout);
-              
+
               // Extract IMEI from logs
               const extractedIMEI = extractIMEIFromLogs(completeMessage);
               setLogsIMEI(extractedIMEI);
-              
+
               console.log('IMEI Extracted from logs:', extractedIMEI || 'No IMEI found in logs');
             }
           }
         }
       );
-      
+
     } catch (error: any) {
       console.log('Error fetching logs IMEI:', error);
-              console.log(`Error: Failed to fetch logs: ${error.message}`);
+      console.log(`Error: Failed to fetch logs: ${error.message}`);
     }
   };
 
@@ -2487,7 +2647,7 @@ const parseSensorData = (rawResponse: string) => {
       await fetchDeviceConfig();
       await fetchSensorData();
       await fetchServerSiteNameFromDevice();
-      
+
       // Alert.alert(
       //   'Configuration Refreshed',
       //   'Device configuration and sensor data have been updated and refreshed successfully!',
@@ -2503,7 +2663,7 @@ const parseSensorData = (rawResponse: string) => {
   const BatteryIndicator = React.memo(({ level }: { level: number }) => {
     const isLowBattery = level < 30;
     const batteryColor = isLowBattery ? '#f44336' : '#4CAF50';
-    
+
     return (
       <View style={{
         flexDirection: 'row',
@@ -2514,10 +2674,10 @@ const parseSensorData = (rawResponse: string) => {
         borderRadius: 12,
         marginLeft: 8,
       }}>
-        <Icon 
-          name={isLowBattery ? "battery-alert" : "battery"} 
-          size={16} 
-          color="#fff" 
+        <Icon
+          name={isLowBattery ? "battery-alert" : "battery"}
+          size={16}
+          color="#fff"
         />
         <Text style={{
           color: '#fff',
@@ -2525,7 +2685,7 @@ const parseSensorData = (rawResponse: string) => {
           fontWeight: 'bold',
           marginLeft: 4,
         }}>
-          {level}%
+          {level}
         </Text>
       </View>
     );
@@ -2540,17 +2700,17 @@ const parseSensorData = (rawResponse: string) => {
       alignItems: 'center',
       padding: 20,
     }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
+      <StatusBar
+        backgroundColor={theme.statusBarBg}
+        barStyle={theme.statusBar}
         translucent={true}
       />
-      
+
       {/* Header */}
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.primary, 
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.primary,
         padding: scale(16),
         paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
         elevation: 4,
@@ -2564,7 +2724,7 @@ const parseSensorData = (rawResponse: string) => {
         right: 0,
         zIndex: 1000,
       }}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={{
             width: scale(40),
@@ -2603,7 +2763,7 @@ const parseSensorData = (rawResponse: string) => {
         }}>
           <ActivityIndicator size="large" color="#fff" />
         </View>
-        
+
         <Text style={{
           fontSize: scaleFont(24),
           fontWeight: 'bold',
@@ -2613,7 +2773,7 @@ const parseSensorData = (rawResponse: string) => {
         }}>
           Fetching Device Data
         </Text>
-        
+
         <Text style={{
           fontSize: scaleFont(16),
           color: theme.textSecondary,
@@ -2623,7 +2783,7 @@ const parseSensorData = (rawResponse: string) => {
         }}>
           Connecting to device and retrieving real-time status information...
         </Text>
-        
+
         <View style={{
           flexDirection: 'row',
           alignItems: 'center',
@@ -2646,7 +2806,7 @@ const parseSensorData = (rawResponse: string) => {
             Communicating with {device?.name || 'Device'}
           </Text>
         </View>
-        
+
         <Text style={{
           fontSize: scaleFont(12),
           color: theme.textTertiary,
@@ -2667,15 +2827,15 @@ const parseSensorData = (rawResponse: string) => {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
+      <StatusBar
+        backgroundColor={theme.statusBarBg}
+        barStyle={theme.statusBar}
         translucent={true}
       />
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.primary, 
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.primary,
         padding: scale(16),
         paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
         elevation: 4,
@@ -2684,7 +2844,7 @@ const parseSensorData = (rawResponse: string) => {
         shadowOpacity: 0.1,
         shadowRadius: 4,
       }}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={{
             width: scale(40),
@@ -2698,7 +2858,7 @@ const parseSensorData = (rawResponse: string) => {
           <Text style={{ color: theme.text, fontSize: scaleFont(24), fontWeight: 'bold' }}>‹</Text>
         </TouchableOpacity>
         <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>Device Dashboard</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={openDrawer}
           style={{
             width: 40,
@@ -2716,7 +2876,7 @@ const parseSensorData = (rawResponse: string) => {
           </View>
         </TouchableOpacity>
       </View>
-      
+
       {/* Enhanced Settings Drawer */}
       {showSettingsDrawer && (
         <Animated.View style={{
@@ -2729,7 +2889,7 @@ const parseSensorData = (rawResponse: string) => {
           zIndex: 1000,
           opacity: drawerAnimation,
         }}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={{ flex: 1 }}
             onPress={closeDrawer}
             activeOpacity={0.8}
@@ -2764,11 +2924,11 @@ const parseSensorData = (rawResponse: string) => {
               elevation: 8,
               shadowColor: '#000000',
               shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-          }}>
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+            }}>
               <View style={{ alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                <Image 
+                <Image
                   source={require('./src/assets/SWN_CHIEF_LOGO_FINAL.png')}
                   style={{
                     width: 180,
@@ -2778,36 +2938,36 @@ const parseSensorData = (rawResponse: string) => {
                 />
               </View>
             </View>
-            
+
             {/* Enhanced Drawer Content */}
             <ScrollView style={{ flex: 1, padding: 24 }} showsVerticalScrollIndicator={false}>
-                          {/* Clean Menu Section Header */}
-            <View style={{ 
-              marginBottom: 20, 
-              paddingHorizontal: 20,
-              paddingTop: 16
-            }}>
-              <Text style={{ 
-                fontSize: 18, 
-                fontWeight: '600', 
-                color: '#fff',
-                marginBottom: 8
+              {/* Clean Menu Section Header */}
+              <View style={{
+                marginBottom: 20,
+                paddingHorizontal: 20,
+                paddingTop: 16
               }}>
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '600',
+                  color: '#fff',
+                  marginBottom: 8
+                }}>
                   Device Operations
                 </Text>
-              <View style={{ 
-                height: 2, 
-                backgroundColor: '#E0E0E0', 
-                borderRadius: 1
-              }} />
+                <View style={{
+                  height: 2,
+                  backgroundColor: '#E0E0E0',
+                  borderRadius: 1
+                }} />
               </View>
 
               {/* Clean Logs Option */}
-              <TouchableOpacity 
-                style={{ 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  paddingVertical: 20, 
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 20,
                   backgroundColor: '#fff',
                   borderRadius: 12,
                   marginBottom: 16,
@@ -2850,7 +3010,7 @@ const parseSensorData = (rawResponse: string) => {
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 18, color: '#333', fontWeight: '600', marginBottom: 4 }}>
                     Live Logs
-                </Text>
+                  </Text>
                   <Text style={{ fontSize: 13, color: '#666', lineHeight: 18 }}>
                     View real-time BLE device logs and data
                   </Text>
@@ -2867,12 +3027,79 @@ const parseSensorData = (rawResponse: string) => {
                 </View>
               </TouchableOpacity>
 
+
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 20,
+                  backgroundColor: '#fff',
+                  borderRadius: 12,
+                  marginBottom: 16,
+                  paddingHorizontal: 20,
+                  elevation: 3,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  borderLeftWidth: 4,
+                  borderLeftColor: '#2196F3',
+                }}
+                onPress={() => {
+                  setShowSettingsDrawer(false);
+                  // Pass the current device if it's connected
+                  if (device && device.isConnected) {
+                    navigation.navigate('Terminal', { device: device });
+                  } else {
+                    // Show alert that no device is connected
+                    // Alert.alert(
+                    //   'No Device Connected',
+                    //   'Please connect to a BLE device first to view logs.',
+                    //   [{ text: 'OK' }]
+                    // );
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  backgroundColor: '#E3F2FD',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 16,
+                }}>
+                  <Icon name="file-document" size={24} color="#2196F3" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 18, color: '#333', fontWeight: '600', marginBottom: 4 }}>
+                    TERMINAL
+                  </Text>
+                  <Text style={{ fontSize: 13, color: '#666', lineHeight: 18 }}>
+                    Basic Terminal For Debugging
+                  </Text>
+                </View>
+                <View style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: '#2196F3',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Icon name="chevron-right" size={18} color="#fff" />
+                </View>
+              </TouchableOpacity>
+
+
+
               {/* White Sensor Calibration Option */}
-              <TouchableOpacity 
-                style={{ 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  paddingVertical: 20, 
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 20,
                   backgroundColor: '#fff',
                   borderRadius: 12,
                   marginBottom: 16,
@@ -2904,8 +3131,8 @@ const parseSensorData = (rawResponse: string) => {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 18, color: '#333', fontWeight: '600', marginBottom: 4 }}>
-                  Sensor Calibration
-                </Text>
+                    Sensor Calibration
+                  </Text>
                   <Text style={{ fontSize: 13, color: '#666', lineHeight: 18 }}>
                     Calibrate device sensors for accurate readings
                   </Text>
@@ -2923,11 +3150,11 @@ const parseSensorData = (rawResponse: string) => {
               </TouchableOpacity>
 
               {/* Enhanced Settings Option */}
-              <TouchableOpacity 
-                style={{ 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  paddingVertical: 20, 
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 20,
                   backgroundColor: '#f8f9fa',
                   borderRadius: 16,
                   marginBottom: 16,
@@ -2942,9 +3169,9 @@ const parseSensorData = (rawResponse: string) => {
                 }}
                 onPress={() => {
                   setShowSettingsDrawer(false);
-                  navigation.navigate('Settings', { 
+                  navigation.navigate('Settings', {
                     device,
-                    serverSiteName, 
+                    serverSiteName,
                     setServerSiteName,
                     selectedSim,
                     setSelectedSim,
@@ -2976,7 +3203,7 @@ const parseSensorData = (rawResponse: string) => {
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 18, color: '#333', fontWeight: '600', marginBottom: 4 }}>
                     Device Settings
-                </Text>
+                  </Text>
                   <Text style={{ fontSize: 13, color: '#666', lineHeight: 18 }}>
                     Configure device parameters and preferences
                   </Text>
@@ -3049,7 +3276,7 @@ const parseSensorData = (rawResponse: string) => {
                 </View>
               </View>
               */}
-              
+
               {/* Device Configuration Card - Hidden (Already on Dashboard) */}
               {/* 
               <View style={{
@@ -3184,7 +3411,7 @@ const parseSensorData = (rawResponse: string) => {
                   </Text>
                 </View>
               </TouchableOpacity>
-              
+
               {/* Auto-refresh Interval Control */}
               <View style={{
                 backgroundColor: '#f8f9fa',
@@ -3197,7 +3424,7 @@ const parseSensorData = (rawResponse: string) => {
 
 
               </View>
-              
+
               {/* Debug Device Data Button - Hidden for Production */}
               {/* 
               <TouchableOpacity
@@ -3235,42 +3462,9 @@ const parseSensorData = (rawResponse: string) => {
                 </View>
               </TouchableOpacity>
               */}
-              
-              <TouchableOpacity
-                style={{
-                  backgroundColor: '#9C27B0',
-                  borderRadius: 16,
-                  padding: 16,
-                  marginBottom: 16,
-                  alignItems: 'center',
-                  elevation: 3,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 4,
-                }}
-                onPress={() => {
-                  fetchDeviceConfig();
-                  
-                  // Show current config data after a short delay
-                  setTimeout(() => {
-                    const configInfo = Object.keys(deviceConfigData).length > 0 
-                      ? `Device Config Data:\n\n${Object.entries(deviceConfigData).map(([key, value]) => `${key}: ${value}`).join('\n')}`
-                      : 'device Config Data  : No data received yet';
-                    
-                    console.log('deviceConfigData  :', configInfo);
-                  }, 3000); // Wait 3 seconds for fetch to complete
-                }}
-                activeOpacity={0.8}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Icon name="cog" size={20} color="#fff" />
-                  <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#fff', marginLeft: 8 }}>
-                    Fetch Long and Lat
-                  </Text>
-                </View>
-              </TouchableOpacity>
-              
+
+
+
               {/* Quick Actions Buttons - Hidden */}
               {/* 
               Refresh Configuration Button
@@ -3509,7 +3703,7 @@ const parseSensorData = (rawResponse: string) => {
               </Text>
             </View>
 
-            
+
             {/* Manual Refresh Button */}
             {/* <TouchableOpacity
               style={{
@@ -3549,23 +3743,23 @@ const parseSensorData = (rawResponse: string) => {
               borderColor: deviceStatusData.batteryLevel < 30 ? '#f44336' : '#4CAF50',
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Icon 
-                  name={deviceStatusData.batteryLevel < 30 ? "battery-alert" : "battery"} 
-                  size={16} 
-                  color={deviceStatusData.batteryLevel < 30 ? '#f44336' : '#4CAF50'} 
+                <Icon
+                  name={deviceStatusData.batteryLevel < 30 ? "battery-alert" : "battery"}
+                  size={16}
+                  color={deviceStatusData.batteryLevel < 30 ? '#f44336' : '#4CAF50'}
                 />
-                <Text style={{ 
-                  fontSize: 14, 
-                  fontWeight: 'bold', 
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: 'bold',
                   color: deviceStatusData.batteryLevel < 30 ? '#f44336' : '#4CAF50',
                   marginLeft: 4,
                 }}>
-                  {deviceStatusData.batteryLevel}%
+                  {deviceStatusData.batteryLevel}
                 </Text>
               </View>
             </View>
           </View>
-          
+
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
@@ -3582,7 +3776,7 @@ const parseSensorData = (rawResponse: string) => {
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>Server</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>{serverSiteName}</Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 40,
@@ -3598,7 +3792,7 @@ const parseSensorData = (rawResponse: string) => {
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>SIM</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>{selectedSim}</Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 40,
@@ -3613,12 +3807,14 @@ const parseSensorData = (rawResponse: string) => {
               </View>
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>Sensors</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>
-                
-                
-                {Object.keys(sensorConfigData).length > 0 ? Object.keys(sensorConfigData).length : Object.values(sensorStates).filter(Boolean).length} Active
+
+
+                {Object.keys(sensorConfigData || {}).reduce((count, key) => {
+                  return sensorConfigData[key]?.is_en === "1" ? count + 1 : count;
+                }, 0)} Active
               </Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 40,
@@ -3635,7 +3831,7 @@ const parseSensorData = (rawResponse: string) => {
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>Connected</Text>
             </View>
           </View>
-          
+
 
         </View>
 
@@ -3669,14 +3865,7 @@ const parseSensorData = (rawResponse: string) => {
                 Device Info
               </Text>
             </View>
-            <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Site:</Text> {deviceServerSiteName || serverSiteName}
-              {deviceServerSiteName && (
-                <Text style={{ fontSize: 10, color: '#4CAF50', marginLeft: 4 }}>
-                  (from device)
-                </Text>
-              )}
-            </Text>
+
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
               <Text style={{ fontWeight: 'bold' }}>Firmware:</Text> {deviceConfigData.Fr_vr || 'v2.1.4'}
             </Text>
@@ -3716,73 +3905,73 @@ const parseSensorData = (rawResponse: string) => {
                 Network
               </Text>
             </View>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <View style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 4,
-                          backgroundColor: deviceStatusData.gsmSignal === 'active' ? '#4CAF50' : '#f44336',
-                          marginRight: 6,
-                        }} />
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                          <Text style={{ fontSize: 12, color: deviceStatusData.gsmSignal === 'active' ? '#4CAF50' : '#f44336', fontWeight: 'bold', marginRight: 12 }}>
-                            GSM Signal
-                          </Text>
-                          {/* GSM Signal Bars */}
-                          <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-                            <View style={{
-                              width: 3,
-                              height: 8,
-                              backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#f44336' : '#4CAF50',
-                              marginRight: 2,
-                              borderRadius: 1,
-                            }} />
-                            <View style={{
-                              width: 3,
-                              height: 12,
-                              backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
-                              marginRight: 2,
-                              borderRadius: 1,
-                            }} />
-                            <View style={{
-                              width: 3,
-                              height: 16,
-                              backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
-                              marginRight: 2,
-                              borderRadius: 1,
-                            }} />
-                            <View style={{
-                              width: 3,
-                              height: 20,
-                              backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
-                              borderRadius: 1,
-                            }} />
-                          </View>
-                        </View>
-                      </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <View style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: deviceStatusData.gsmSignal === 'active' ? '#4CAF50' : '#f44336',
+                marginRight: 6,
+              }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <Text style={{ fontSize: 12, color: deviceStatusData.gsmSignal === 'active' ? '#4CAF50' : '#f44336', fontWeight: 'bold', marginRight: 12 }}>
+                  GSM Signal
+                </Text>
+                {/* GSM Signal Bars */}
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
+                  <View style={{
+                    width: 3,
+                    height: 8,
+                    backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#f44336' : '#4CAF50',
+                    marginRight: 2,
+                    borderRadius: 1,
+                  }} />
+                  <View style={{
+                    width: 3,
+                    height: 12,
+                    backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
+                    marginRight: 2,
+                    borderRadius: 1,
+                  }} />
+                  <View style={{
+                    width: 3,
+                    height: 16,
+                    backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
+                    marginRight: 2,
+                    borderRadius: 1,
+                  }} />
+                  <View style={{
+                    width: 3,
+                    height: 20,
+                    backgroundColor: deviceStatusData.gsmSignalStrength === 0 ? '#ccc' : '#4CAF50',
+                    borderRadius: 1,
+                  }} />
+                </View>
+              </View>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{
                 width: 8,
                 height: 8,
                 borderRadius: 4,
-                  backgroundColor: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336',
+                backgroundColor: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336',
                 marginRight: 6,
               }} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                  <Text style={{ fontSize: 12, color: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336', fontWeight: 'bold', marginRight: 8 }}>
-                    Solar Level
-                  </Text>
-                  <Text style={{ fontSize: 10, color: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336' }}>
-                    {deviceStatusData.solarLevel}%
-                  </Text>
-            </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <Text style={{ fontSize: 12, color: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336', fontWeight: 'bold', marginRight: 8 }}>
+                  Solar Level
+                </Text>
+                <Text style={{ fontSize: 10, color: deviceStatusData.solarLevel > 0 ? '#4CAF50' : '#f44336' }}>
+                  {deviceStatusData.solarLevel}
+                </Text>
+              </View>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
               <Text style={{ fontSize: 12, color: '#666', fontWeight: 'bold', marginRight: 6 }}>IMEI:</Text>
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ fontSize: 12, color: '#333', fontFamily: 'monospace', flex: 1 }}>
                   {(() => {
-                    const imeiValue = deviceConfigData.IMEI_num ||'No IMEI data';
+                    const imeiValue = deviceConfigData.IMEI_num || 'No IMEI data';
                     console.log('IMEI Display Value:', imeiValue);
                     console.log('Device Config Data:', deviceConfigData);
                     console.log('Device Status Data:', deviceStatusData);
@@ -3791,7 +3980,7 @@ const parseSensorData = (rawResponse: string) => {
                     return imeiValue;
                   })()}
                 </Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     console.log('IMEI Debug Info:');
                     console.log(`Config Data Keys: ${Object.keys(deviceConfigData).join(', ')}`);
@@ -3808,7 +3997,7 @@ const parseSensorData = (rawResponse: string) => {
                 >
                   <Icon name="bug" size={16} color="#666" />
                 </TouchableOpacity>
-                </View>
+              </View>
             </View>
           </View>
 
@@ -3841,7 +4030,7 @@ const parseSensorData = (rawResponse: string) => {
               </Text>
             </View>
             <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold' }}>Active:</Text> {Object.values(sensorConfigData).filter(Boolean).length}
+              <Text style={{ fontWeight: 'bold' }}>Active:</Text> {Object.values(sensorConfigData).filter(sensor => sensor.is_en == 1).length}
             </Text>
             <Text style={{ fontSize: 12, color: '#666' }}>
               <Text style={{ fontWeight: 'bold' }}>Total:</Text> {Object.keys(sensorConfigData).length}
@@ -3939,15 +4128,15 @@ const parseSensorData = (rawResponse: string) => {
               Device Configs
             </Text>
           </View>
-          
+
           <View style={{ marginBottom: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ fontSize: 14, color: '#666' }}>
+              <Text style={{ fontSize: 14, color: '#666' }}>
                 <Text style={{ fontWeight: 'bold' }}>Date:</Text>
-            </Text>
-            <Text style={{ fontSize: 14, color: '#333', fontWeight: 'bold' }}>
+              </Text>
+              <Text style={{ fontSize: 14, color: '#333', fontWeight: 'bold' }}>
                 {deviceStatusData.deviceDate}
-            </Text>
+              </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontSize: 14, color: '#666' }}>
@@ -3962,18 +4151,18 @@ const parseSensorData = (rawResponse: string) => {
 
           <View style={{ marginBottom: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-            <Text style={{ fontSize: 14, color: '#666' }}>
-                <Text style={{ fontWeight: 'bold' }}>Data Freequency:</Text>
-            </Text>
-            <Text style={{ fontSize: 14, color: '#333', fontWeight: 'bold' }}>
+              <Text style={{ fontSize: 14, color: '#666' }}>
+                <Text style={{ fontWeight: 'bold' }}>Data Frequency:</Text>
+              </Text>
+              <Text style={{ fontSize: 14, color: '#333', fontWeight: 'bold' }}>
                 {dataFreequncy} minutes
-            </Text>
+              </Text>
             </View>
-           
-          </View>
-          
 
-          
+          </View>
+
+
+
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text style={{ fontSize: 14, color: '#666' }}>
               <Text style={{ fontWeight: 'bold' }}>GPIO Extender:</Text>
@@ -3983,15 +4172,15 @@ const parseSensorData = (rawResponse: string) => {
                 width: 8,
                 height: 8,
                 borderRadius: 4,
-                backgroundColor: (deviceConfigData.gpio_extender_enabled === 'true' || deviceConfigData.gpio_extender_enabled === '1' || deviceConfigData.gpio_extender_enabled === 'enabled') ? '#4CAF50' : '#f44336',
+                backgroundColor: (gpio_enabled == 1) ? '#4CAF50' : '#f44336',
                 marginRight: 6,
               }} />
-              <Text style={{ 
-                fontSize: 14, 
-                color: (deviceConfigData.gpio_extender_enabled === 'true' || deviceConfigData.gpio_extender_enabled === '1' || deviceConfigData.gpio_extender_enabled === 'enabled') ? '#4CAF50' : '#f44336', 
-                fontWeight: 'bold' 
+              <Text style={{
+                fontSize: 14,
+                color: (gpio_enabled == 1) ? '#4CAF50' : '#f44336',
+                fontWeight: 'bold'
               }}>
-                {(deviceConfigData.gpio_extender_enabled === 'true' || deviceConfigData.gpio_extender_enabled === '1' || deviceConfigData.gpio_extender_enabled === 'enabled') ? 'ON' : 'OFF'}
+                {(gpio_enabled == 1) ? 'ON' : 'OFF'}
               </Text>
             </View>
           </View>
@@ -3999,205 +4188,99 @@ const parseSensorData = (rawResponse: string) => {
 
         {/* Active Sensors List */}
         {/* Active Sensors List */}
-<View style={{
-  backgroundColor: '#fff',
-  borderRadius: 16,
-  padding: 20,
-  marginBottom: 16,
-  elevation: 3,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.1,
-  shadowRadius: 4,
-}}>
-  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
-    <View style={{
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: '#e3f2fd',
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}>
-      <Icon name="tune" size={20} color="#2196F3" />
-    </View>
-    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
-      Active Sensors
-    </Text>
-  </View>
-  {sensorConfigData && sensorConfigData.length > 0 ? (
-    sensorConfigData
-      .filter(sensor => sensor.is_en ) // only enabled
-      .map((sensor, index, filteredArray) => (
-        <View key={sensor.S_Name || index} style={{ 
-          flexDirection: 'row', 
-          alignItems: 'center', 
-          marginBottom: index < filteredArray.length - 1 ? 12 : 0,
-          paddingBottom: index < filteredArray.length - 1 ? 12 : 0,
-          borderBottomWidth: index < filteredArray.length - 1 ? 1 : 0,
-          borderBottomColor: '#f0f0f0',
+        <View style={{
+          backgroundColor: '#fff',
+          borderRadius: 16,
+          padding: 20,
+          marginBottom: 16,
+          elevation: 3,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
         }}>
-          <View style={{
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: '#4CAF50',
-            marginRight: 12,
-          }} />
-          <Text style={{ 
-            fontSize: 14, 
-            color: '#333',
-            flex: 1,
-          }}>
-            {sensor.S_Name || "Unnamed Sensor"}
-          </Text>
-          <Text style={{ 
-            fontSize: 14, 
-            color: '#0008efff',
-            flex: 1,
-          }}>
-            {sensor.Val || "N/A"}
-          </Text>
-          <View style={{
-            backgroundColor: '#e8f5e8',
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            borderRadius: 12,
-          }}>
-            <Text style={{ 
-              fontSize: 10, 
-              color: '#4CAF50',
-              fontWeight: 'bold',
-              textTransform: 'uppercase',
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <View style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: '#e3f2fd',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}>
-              Active
+              <Icon name="tune" size={20} color="#2196F3" />
+            </View>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginLeft: 12 }}>
+              Active Sensors
             </Text>
           </View>
+
+          {console.log("active sensor list  ", sensorConfigData)}
+
+          {sensorConfigData && sensorConfigData.length > 0 ? (
+            sensorConfigData
+              .filter(sensor => sensor.is_en == 1) // only enabled
+              .map((sensor, index, filteredArray) => (
+                <View key={sensor.S_Name || index} style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: index < filteredArray.length - 1 ? 12 : 0,
+                  paddingBottom: index < filteredArray.length - 1 ? 12 : 0,
+                  borderBottomWidth: index < filteredArray.length - 1 ? 1 : 0,
+                  borderBottomColor: '#f0f0f0',
+                }}>
+                  <View style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: '#4CAF50',
+                    marginRight: 12,
+                  }} />
+                  <Text style={{
+                    fontSize: 14,
+                    color: '#333',
+                    flex: 1,
+                  }}>
+                    {sensor.S_Name || "Unnamed Sensor"}
+                  </Text>
+                  <Text style={{
+                    fontSize: 14,
+                    color: '#0008efff',
+                    flex: 1,
+                  }}>
+                    {sensor.Val || "N/A"}
+                  </Text>
+                  <View style={{
+                    backgroundColor: '#e8f5e8',
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 12,
+                  }}>
+                    <Text style={{
+                      fontSize: 10,
+                      color: '#4CAF50',
+                      fontWeight: 'bold',
+                      textTransform: 'uppercase',
+                    }}>
+                      Active
+                    </Text>
+                  </View>
+                </View>
+              ))
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+              <Icon name="alert-circle" size={32} color="#ccc" />
+              <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' }}>
+                No sensors currently active
+              </Text>
+            </View>
+          )}
         </View>
-      ))
-  ) : (
-    <View style={{ alignItems: 'center', paddingVertical: 20 }}>
-      <Icon name="alert-circle" size={32} color="#ccc" />
-      <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' }}>
-        No sensors currently active
-      </Text>
-    </View>
-  )}
-</View>
 
       </ScrollView>
 
       {/* Sensor Data Popup */}
-      {showSensorDataPopup && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-        }}>
-          <View style={{
-            backgroundColor: '#fff',
-            borderRadius: 16,
-            padding: 20,
-            margin: 20,
-            maxWidth: '90%',
-            maxHeight: '80%',
-          }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#333' }}>
-                Raw Sensor Data
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowSensorDataPopup(false)}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 15,
-                  backgroundColor: '#f0f0f0',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Icon name="close" size={20} color="#666" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView style={{ maxHeight: 400 }}>
-              <Text style={{ fontSize: 14, color: '#333', marginBottom: 8, fontWeight: 'bold' }}>
-                Raw Response from Device:
-              </Text>
-              <View style={{
-                backgroundColor: '#f5f5f5',
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 12,
-              }}>
-                <Text style={{ fontSize: 12, color: '#666', fontFamily: 'monospace' }}>
-                  {rawSensorData || 'No data received'}
-                </Text>
-              </View>
-              
-              {Object.keys(sensorConfigData).length > 0 && (
-                <>
-                  <Text style={{ fontSize: 14, color: '#333', marginBottom: 8, fontWeight: 'bold' }}>
-                    Parsed Sensor Data:
-                  </Text>
-                  <View style={{
-                    backgroundColor: '#e8f5e8',
-                    borderRadius: 8,
-                    padding: 12,
-                  }}>
-                    {Object.entries(sensorConfigData).map(([sensorName, sensorInfo]: [string, any]) => (
-                      <View key={sensorName} style={{ marginBottom: 8 }}>
-                        <Text style={{ fontSize: 12, color: '#333', fontWeight: 'bold' }}>
-                          {sensorName}:
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#666', marginLeft: 8 }}>
-                          Offset: {sensorInfo.offset}, Scale: {sensorInfo.scale}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                </>
-              )}
-            </ScrollView>
-            
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
-              <TouchableOpacity
-                onPress={() => setShowSensorDataPopup(false)}
-                style={{
-                  backgroundColor: '#666',
-                  borderRadius: 8,
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Close</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                onPress={() => {
-                  setShowSensorDataPopup(false);
-                  // Copy to clipboard functionality could be added here
-                }}
-                style={{
-                  backgroundColor: '#4CAF50',
-                  borderRadius: 8,
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '600' }}>Copy Data</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
+
 
       {/* Refresh Pop-up */}
       {showRefreshPopup && (
@@ -4293,12 +4376,14 @@ const parseSensorData = (rawResponse: string) => {
 }
 
 
+
+
 function SettingsScreen({ navigation, route }: { navigation: any; route: any }) {
   const { currentTime } = useTimer();
-  
+
   const { theme, themeType, setThemeType, toggleTheme } = useTheme();
-  const { 
-    serverSiteName: initialServerSiteName, 
+  const {
+    serverSiteName: initialServerSiteName,
     setServerSiteName,
     selectedSim: initialSelectedSim,
     setSelectedSim: setParentSelectedSim,
@@ -4327,7 +4412,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const [showDataFrequencyDropdown, setShowDataFrequencyDropdown] = useState(false);
   const [selectedMinutes, setSelectedMinutes] = useState(5);
   const [selectedHours, setSelectedHours] = useState(1);
-  const [sensorConfigData, setSensorConfigData] = useState<{[key: string]: {offset: string, scale: string}}>({});
+  const [sensorConfigData, setSensorConfigData] = useState<{ [key: string]: { offset: string, scale: string } }>({});
   const [rawSensorData, setRawSensorData] = useState<string>('');
   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -4337,38 +4422,38 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   useEffect(() => {
     const loadPersistentSettings = async () => {
       console.log('Loading settings from device and local storage...');
-      
+
       // First, try to get fresh data from device if available
       if (device && device.connectedDevice && device.isConnected) {
         try {
           console.log('Device is connected, fetching fresh settings from device...');
-          
+
           const connectedDevice = device.connectedDevice;
           await connectedDevice.discoverAllServicesAndCharacteristics();
-          
+
           const configCommand = '{$send_device_config}';
           const encoded = Buffer.from(configCommand, 'utf8');
-          
+
           for (let i = 0; i < encoded.length; i += 18) {
             const chunk = encoded.slice(i, i + 18);
             const base64Chunk = chunk.toString('base64');
-            
+
             await connectedDevice.writeCharacteristicWithoutResponseForService(
               SERVICE_UUID,
               F1_WRITE_UUID,
               base64Chunk
             );
-            
+
             await new Promise(resolve => setTimeout(resolve, 50));
           }
-          
+
           console.log('Fresh device config requested, will update settings when response received');
-          
+
         } catch (error: any) {
           console.log('Could not fetch fresh device settings:', error.message);
         }
       }
-      
+
       // Load from local storage as fallback
       const savedSensorConfigData = await loadFromStorage('sensor_config_data', {});
       const savedSensorStates = await loadFromStorage(STORAGE_KEYS.SENSOR_STATES, DEFAULT_SENSOR_STATES);
@@ -4406,14 +4491,26 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   };
 
   // Update data frequency and save to storage
-  const handleDataFrequencyChange = async () => {
-    const newDataFreq = calculateDataFrequency();
-    setLocalDataFreequency(newDataFreq);
-    await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, newDataFreq);
-    if (setDataFreequency) {
-      setDataFreequency(newDataFreq);
-    }
-  };
+  // const handleDataFrequencyChange = async () => {
+  //   console.log("freequency hours and minutes to calculate", selectedHours,":",selectedMinutes)
+  //   const newDataFreq = calculateDataFrequency();
+  //   setLocalDataFreequency(newDataFreq);
+  //   await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, newDataFreq);
+  //   if (setDataFreequency) {
+  //     setDataFreequency(newDataFreq);
+  //   }
+  // };
+
+  const handleDataFrequencyChange = useCallback(
+    async (hours: number, minutes: number) => {
+     
+      console.log(`📤 Frequency to calculate: ${hours}:${minutes}`);
+      const newDataFreq = calculateDataFrequency(hours, minutes);
+       setLocalDataFreequency(newDataFreq);
+       await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, newDataFreq);
+    },
+    [device, setDataFreequency]
+  );
 
   // Update the parent component when server site name changes
   const handleServerSiteNameChange = async (newName: string) => {
@@ -4422,7 +4519,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     if (setServerSiteName) {
       setServerSiteName(newName);
     }
-    
+
     await sendServerSiteNameToDevice(newName);
   };
 
@@ -4436,7 +4533,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       }
 
       console.log('Sending server site name to device:', siteName);
-      
+
       let connectedDevice = device.connectedDevice;
       if (!connectedDevice) {
         try {
@@ -4449,7 +4546,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       }
 
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
+
       const commands = [
         `{$device_config${siteName}}`,
         `{$set_server_site_name:${siteName}}`,
@@ -4459,7 +4556,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         `{$server_site_name:${siteName}}`,
         `{$site_name:${siteName}}`
       ];
-      
+
       let commandSent = false;
       for (const command of commands) {
         console.log(`Trying to send command: ${command}`);
@@ -4476,13 +4573,13 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
           continue;
         }
       }
-      
+
       if (commandSent) {
         console.log('Server site name sent to device successfully');
       } else {
         console.log('Failed to send any server site name command to device');
       }
-      
+
     } catch (error: any) {
       console.error('Error sending server site name to device:', error);
     }
@@ -4510,15 +4607,27 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     try {
       const { device } = route.params || {};
       if (!device) {
-        console.log('No device available for sending time sync command');
-        Alert.alert('Error', 'No device available for sending time sync command.');
-        return false;
+        console.log('No device connected. Please connect to a device first.');
+        return;
+      }
+
+      console.log('Sending complete device configuration to device for PERMANENT overwrite...');
+
+      let connectedDevice = device.connectedDevice;
+      if (!connectedDevice) {
+        try {
+          connectedDevice = await manager.connectToDevice(device.id);
+          console.log('Connected to device for configuration update');
+        } catch (error: any) {
+          console.error('Failed to connect to device for configuration update:', error.message);
+          return;
+        }
       }
 
       console.log('=== SENDING TIME SYNC COMMAND TO DEVICE ===');
       const timestamp = Math.floor(Date.now() / 1000);
       const command = `{$time_sync$${timestamp}}`;
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+
       await connectedDevice.discoverAllServicesAndCharacteristics();
 
       const commandSent = await sendCommandInChunks(connectedDevice, command);
@@ -4526,6 +4635,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       if (commandSent) {
         console.log('✅ Time sync command sent successfully:', command);
         Alert.alert('Success', 'Time sync command sent successfully.');
+        await saveToStorage('timestamp', timestamp);
         return true;
       } else {
         console.log('❌ Failed to send time sync command');
@@ -4543,9 +4653,9 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const handleSensorStateChange = async (sensorName, isEnabled) => {
     const newSensorStates = { ...sensorStates, [sensorName]: isEnabled };
     setLocalSensorStates(newSensorStates);
-    
+
     await saveToStorage(STORAGE_KEYS.SENSOR_STATES, newSensorStates);
-    
+
     if (setParentSensorStates) {
       setParentSensorStates(newSensorStates);
     }
@@ -4562,8 +4672,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   };
 
   // Calculate data frequency in seconds
-  const calculateDataFrequency = () => {
-    return (selectedHours * 60) +  selectedMinutes ;
+  const calculateDataFrequency = (hours,minutes) => {
+    return ( (hours * 60 * 60) + (minutes * 60) );
   };
 
   // Send command in chunks
@@ -4571,22 +4681,22 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
     try {
       const encoded = Buffer.from(command, 'utf8');
       console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
-      
+
       for (let i = 0; i < encoded.length; i += chunkSize) {
         const chunk = encoded.slice(i, i + chunkSize);
         const base64Chunk = chunk.toString('base64');
-        
-        console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
-        
+
+        console.log(`Sending chunk ${Math.floor(i / chunkSize) + 1}: ${chunk.toString('utf8')}`);
+
         await device.writeCharacteristicWithoutResponseForService(
           SERVICE_UUID,
           F1_WRITE_UUID,
           base64Chunk
         );
-        
+
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      
+
       console.log('Command sent successfully in chunks');
       return true;
     } catch (error) {
@@ -4743,37 +4853,37 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const parseSensorConfig = (data: string) => {
     try {
       console.log('Parsing sensor config data:', data);
-      
-      const sensorData: {[key: string]: {offset: string, scale: string}} = {};
+
+      const sensorData: { [key: string]: { offset: string, scale: string } } = {};
       const sensorNames: string[] = [];
-      
+
       let currentData = data;
       let startIndex = 0;
-      
+
       while (true) {
         const sNameIndex = currentData.indexOf('S_Name:', startIndex);
         if (sNameIndex === -1) break;
-        
+
         const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
         const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-        
+
         const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
         console.log('Processing sensor entry:', sensorEntry);
-        
+
         const commaIndex = sensorEntry.indexOf(',');
         if (commaIndex !== -1) {
           const sensorName = sensorEntry.substring(0, commaIndex).trim();
           console.log('Found sensor name:', sensorName);
-          
+
           if (sensorName) {
             const existingCount = sensorNames.filter(name => name === sensorName).length;
             const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-            
+
             sensorNames.push(uniqueSensorKey);
-            
+
             const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
             const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-            
+
             if (offsetMatch && scaleMatch) {
               sensorData[uniqueSensorKey] = {
                 offset: offsetMatch[1].trim(),
@@ -4787,26 +4897,26 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
             }
           }
         }
-        
+
         startIndex = sNameIndex + 7;
       }
-      
+
       console.log('All found sensor names:', sensorNames);
       console.log('Parsed sensor data:', sensorData);
       setSensorConfigData(sensorData);
-      
-      const newSensorStates: {[key: string]: boolean} = {};
+
+      const newSensorStates: { [key: string]: boolean } = {};
       sensorNames.forEach(sensorName => {
         newSensorStates[sensorName] = sensorStates[sensorName] !== undefined ? sensorStates[sensorName] : true;
       });
-      
+
       setLocalSensorStates(newSensorStates);
       saveToStorage(STORAGE_KEYS.SENSOR_STATES, newSensorStates);
-      
+
       saveToStorage('sensor_config_data', sensorData);
-      
+
       console.log('Dynamically updated sensor states:', newSensorStates);
-      
+
     } catch (error) {
       console.error('Error parsing sensor config:', error);
     }
@@ -4815,36 +4925,32 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
   const sendCompleteDeviceConfig = async () => {
     try {
       const { device } = route.params || {};
+      let connectedDevice;
       if (!device) {
         console.log('No device connected. Please connect to a device first.');
-        return;
+        connectedDevice = await manager.connectToDevice(device.id);
+        console.log('Connected to device for configuration update');
+
       }
 
+
+
+      connectedDevice = device.connectedDevice;
       console.log('Sending complete device configuration to device for PERMANENT overwrite...');
-      
-      let connectedDevice = device.connectedDevice;
-      if (!connectedDevice) {
-        try {
-          connectedDevice = await manager.connectToDevice(device.id);
-          console.log('Connected to device for configuration update');
-        } catch (error: any) {
-          console.error('Failed to connect to device for configuration update:', error.message);
-          return;
-        }
-      }
+
 
       await connectedDevice.discoverAllServicesAndCharacteristics();
-      
+
       // Update data frequency before sending
-      await handleDataFrequencyChange();
-      
-      const dateFormat = selectedDateFormat.includes('YYYY-MM-DD') ? 'YYYY-MM-DD' : 
-                        selectedDateFormat.includes('MM/DD/YYYY') ? 'MM/DD/YYYY' : 
-                        selectedDateFormat.includes('DD/MM/YYYY') ? 'DD/MM/YYYY' : 'YYYY-MM-DD';
-      
-      const timeFormat = selectedDateFormat.includes('HH:mm:ss') ? 'HH:mm:SS' : 
-                        selectedDateFormat.includes('HH:mm') ? 'HH:mm' : 'HH:mm:SS';
-      
+      await handleDataFrequencyChange(selectedHours,selectedMinutes);
+
+      const dateFormat = selectedDateFormat.includes('YYYY-MM-DD') ? 'YYYY-MM-DD' :
+        selectedDateFormat.includes('MM/DD/YYYY') ? 'MM/DD/YYYY' :
+          selectedDateFormat.includes('DD/MM/YYYY') ? 'DD/MM/YYYY' : 'YYYY-MM-DD';
+
+      const timeFormat = selectedDateFormat.includes('HH:mm:ss') ? 'HH:mm:SS' :
+        selectedDateFormat.includes('HH:mm') ? 'HH:mm' : 'HH:mm:SS';
+
       const completeConfig = `{$device_config$` +
         `Servr_name:${serverSiteName},` +
         `data_freq:${dataFreequency},` +
@@ -4852,79 +4958,38 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         `time_fr:${timeFormat},` +
         `gpio_extender_enabled:${gpio_enabled},` +
         `gsm_sim_name:${selectedSim.toUpperCase()}}`;
-      
+
       console.log('Complete device configuration for PERMANENT overwrite:', completeConfig);
-      
+
       const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
       const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
-      
+
       try {
         const encoded = Buffer.from(completeConfig, 'utf8');
         console.log(`Sending configuration "${completeConfig}" in chunks of 18 bytes for PERMANENT overwrite`);
-        
+
         for (let i = 0; i < encoded.length; i += 18) {
           const chunk = encoded.slice(i, i + 18);
           const base64Chunk = chunk.toString('base64');
-          
-          console.log(`Sending chunk ${Math.floor(i/18) + 1}: ${chunk.toString('utf8')}`);
-          
+
+          console.log(`Sending chunk ${Math.floor(i / 18) + 1}: ${chunk.toString('utf8')}`);
+
           await connectedDevice.writeCharacteristicWithoutResponseForService(
             SERVICE_UUID,
             F1_WRITE_UUID,
             base64Chunk
           );
-          
+
           await new Promise(resolve => setTimeout(resolve, 50));
         }
-        
+
         console.log('Device configuration sent successfully for PERMANENT overwrite');
-        
-        console.log('Updating command "2" on Python device with new configuration...');
-        const command2Update = `{$device_config$` +
-          `Servr_name:${serverSiteName},` +
-          `data_freq:${dataFreequency},` +
-          `date_fr:${dateFormat},` +
-          `time_fr:${timeFormat},` +
-          `gpio_extender_enabled:${gpio_enabled},` +
-          `gsm_sim_name:${selectedSim.toUpperCase()}}`;
-        
-        console.log('New command "2" value:', command2Update);
-        
-        const command2Encoded = Buffer.from(command2Update, 'utf8');
-        for (let i = 0; i < command2Encoded.length; i += 18) {
-          const chunk = command2Encoded.slice(i, i + 18);
-          const base64Chunk = chunk.toString('base64');
-          
-          await connectedDevice.writeCharacteristicWithoutResponseForService(
-            SERVICE_UUID,
-            F1_WRITE_UUID,
-            base64Chunk
-          );
-          
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
-        console.log('Command "2" updated successfully on Python device');
-        
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const confirmCommand = '{$save_config_permanent}';
-        console.log('Sending permanent save confirmation command:', confirmCommand);
-        
-        const confirmEncoded = Buffer.from(confirmCommand, 'utf8');
-        for (let i = 0; i < confirmEncoded.length; i += 18) {
-          const chunk = confirmEncoded.slice(i, i + 18);
-          const base64Chunk = chunk.toString('base64');
-          
-          await connectedDevice.writeCharacteristicWithoutResponseForService(
-            SERVICE_UUID,
-            F1_WRITE_UUID,
-            base64Chunk
-          );
-          
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-        
+        Alert.alert('Success', 'Device Congif changed successfully.');
+
+
+
+
+
         console.log('✅ PERMANENT UPDATE SUCCESSFUL - Device configuration has been PERMANENTLY overwritten!');
         console.log(`🔄 Server: ${serverSiteName}`);
         console.log(`📱 SIM: ${selectedSim}`);
@@ -4934,66 +4999,47 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         console.log(`🔌 GPIO Extender: ${gpio_enabled ? 'Enabled' : 'Disabled'}`);
         console.log('💾 All old settings have been completely replaced with new values.');
         console.log('🔧 Command "2" has been updated on device.');
-        
+
         if (setServerSiteName) setServerSiteName(serverSiteName);
         if (setParentSelectedSim) setParentSelectedSim(selectedSim);
         if (setParentSelectedDateFormat) setParentSelectedDateFormat(selectedDateFormat);
         if (setDataFreequency) setDataFreequency(dataFreequency);
         if (set_gpio_enabled) set_gpio_enabled(gpio_enabled);
-        
+
         await saveToStorage(STORAGE_KEYS.SERVER_SITE_NAME, serverSiteName);
         await saveToStorage(STORAGE_KEYS.SELECTED_SIM, selectedSim);
         await saveToStorage(STORAGE_KEYS.SELECTED_DATE_FORMAT, selectedDateFormat);
         await saveToStorage(STORAGE_KEYS.DATA_FREQUENCY, dataFreequency);
         await saveToStorage(STORAGE_KEYS.GPIO_ENABLED, gpio_enabled);
-        
+
+
         console.log('Verifying permanent save by requesting device configuration...');
-        setTimeout(async () => {
-          try {
-            const verifyCommand = '{$send_device_config}';
-            const verifyEncoded = Buffer.from(verifyCommand, 'utf8');
-            
-            for (let i = 0; i < verifyEncoded.length; i += 18) {
-              const chunk = verifyEncoded.slice(i, i + 18);
-              const base64Chunk = chunk.toString('base64');
-              
-              await connectedDevice.writeCharacteristicWithoutResponseForService(
-                SERVICE_UUID,
-                F1_WRITE_UUID,
-                base64Chunk
-              );
-              
-              await new Promise(resolve => setTimeout(resolve, 50));
-            }
-            
-            console.log('Verification command sent - device should respond with updated config');
-          } catch (verifyError: any) {
-            console.error('Error during verification:', verifyError);
-          }
-        }, 2000);
-        
+
+
       } catch (error: any) {
         console.error('Error sending device configuration:', error);
         console.log(`Error: Failed to send configuration: ${error.message}`);
       }
-      
+
     } catch (error: any) {
       console.error('Error in sendCompleteDeviceConfig:', error);
       console.log(`Error: Configuration update failed: ${error.message}`);
     }
   };
 
+
+  
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
+      <StatusBar
+        backgroundColor={theme.statusBarBg}
+        barStyle={theme.statusBar}
         translucent={true}
       />
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.primary, 
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: theme.primary,
         padding: scale(16),
         paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
         elevation: 4,
@@ -5002,7 +5048,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         shadowOpacity: 0.1,
         shadowRadius: 4,
       }}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={{
             width: scale(40),
@@ -5017,7 +5063,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
         </TouchableOpacity>
         <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>Settings</Text>
       </View>
-      
+
       <ScrollView style={{ flex: 1, padding: 16 }} showsVerticalScrollIndicator={false}>
         {/* Modern Settings Header */}
         <View style={{
@@ -5046,7 +5092,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               Device Settings
             </Text>
           </View>
-          
+
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
@@ -5063,7 +5109,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>Server</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>{serverSiteName}</Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 32,
@@ -5079,7 +5125,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               <Text style={{ fontSize: 12, color: '#666', textAlign: 'center' }}>SIM</Text>
               <Text style={{ fontSize: 10, color: '#999', textAlign: 'center' }}>{selectedSim}</Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 32,
@@ -5097,7 +5143,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                 {Object.values(sensorStates).filter(Boolean).length} Active
               </Text>
             </View>
-            
+
             <View style={{ alignItems: 'center', flex: 1 }}>
               <View style={{
                 width: 32,
@@ -5143,7 +5189,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               Server Configuration
             </Text>
           </View>
-          
+
           <Text style={{ fontSize: 14, color: theme.textSecondary, marginBottom: 8 }}>
             Server Site Name
           </Text>
@@ -5192,7 +5238,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               SIM Card Selection
             </Text>
           </View>
-          
+
           <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
             Select SIM Card
           </Text>
@@ -5215,7 +5261,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
             </Text>
             <Icon name={showSimDropdown ? "chevron-up" : "chevron-down"} size={16} color="#666" />
           </TouchableOpacity>
-          
+
           {showSimDropdown && (
             <View style={{
               backgroundColor: '#fff',
@@ -5292,7 +5338,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               Time & Data Settings
             </Text>
           </View>
-          
+
           {/* GPIO Extender Toggle */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Text style={{ fontSize: 14, color: '#666' }}>
@@ -5307,10 +5353,10 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
           </View>
 
           {/* Current Time Display */}
-          <View style={{ 
-            backgroundColor: '#f8f9fa', 
-            borderRadius: 8, 
-            padding: 12, 
+          <View style={{
+            backgroundColor: '#f8f9fa',
+            borderRadius: 8,
+            padding: 12,
             marginBottom: 12,
             borderLeftWidth: 3,
             borderLeftColor: '#FF9800',
@@ -5322,71 +5368,71 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               {formatDate(currentTime, globalDateFormat)}
             </Text>
           </View>
-          
+
           <View style={{
-  backgroundColor: theme.isDark ? '#2a2a2a' : '#f8f9fa',
-  borderRadius: 10,
-  padding: 12,
-  marginBottom: 12,
-  borderWidth: 1,
-  borderColor: theme.success || '#4CAF50',
-}}>
-  <TouchableOpacity
-    style={{
-      backgroundColor: theme.success || '#4CAF50',
-      borderRadius: 10,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      elevation: 2,
-      shadowColor: theme.shadow || '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.2,
-      shadowRadius: 2,
-    }}
-    onPress={sendTimeSyncCommand}
-    activeOpacity={0.8}
-  >
-    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <Icon name="clock-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-      <Text style={{
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#fff',
-        letterSpacing: 0.3,
-      }}>
-        Sync Time
-      </Text>
-    </View>
-  </TouchableOpacity>
-</View>
-          
+            backgroundColor: theme.isDark ? '#2a2a2a' : '#f8f9fa',
+            borderRadius: 10,
+            padding: 12,
+            marginBottom: 12,
+            borderWidth: 1,
+            borderColor: theme.success || '#4CAF50',
+          }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.success || '#4CAF50',
+                borderRadius: 10,
+                paddingVertical: 12,
+                paddingHorizontal: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+                elevation: 2,
+                shadowColor: theme.shadow || '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.2,
+                shadowRadius: 2,
+              }}
+              onPress={sendTimeSyncCommand}
+              activeOpacity={0.8}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Icon name="clock-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={{
+                  fontSize: 15,
+                  fontWeight: '600',
+                  color: '#fff',
+                  letterSpacing: 0.3,
+                }}>
+                  Sync Time
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
           {/* Data Frequency Picker */}
           <Text style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
             Data Frequency
           </Text>
-          <View style={{ 
-            backgroundColor: '#fafafa', 
-            borderRadius: 12, 
+          <View style={{
+            backgroundColor: '#fafafa',
+            borderRadius: 12,
             padding: 16,
             borderWidth: 1,
             borderColor: '#e0e0e0',
           }}>
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
               justifyContent: 'center',
               width: '100%'
             }}>
               {/* Hours Column */}
-              <View style={{ 
-                width: 80, 
-                height: 120, 
+              <View style={{
+                width: 80,
+                height: 120,
                 alignItems: 'center',
                 marginRight: 20
               }}>
-                <ScrollView 
+                <ScrollView
                   style={{ height: 120 }}
                   showsVerticalScrollIndicator={false}
                   snapToInterval={40}
@@ -5395,11 +5441,11 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                   scrollEnabled={true}
                   nestedScrollEnabled={true}
                 >
-                  {Array.from({length: 25}, (_, i) => i).map((value, index) => (
-                    <TouchableOpacity 
-                      key={value} 
-                      style={{ 
-                        height: 40, 
+                  {Array.from({ length: 25 }, (_, i) => i).map((value, index) => (
+                    <TouchableOpacity
+                      key={value}
+                      style={{
+                        height: 40,
                         justifyContent: 'center',
                         alignItems: 'center',
                         backgroundColor: value === selectedHours ? '#FF9800' : 'transparent',
@@ -5409,12 +5455,12 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                       }}
                       onPress={() => {
                         setSelectedHours(value);
-                        handleDataFrequencyChange();
+                        handleDataFrequencyChange(value,selectedMinutes);
                       }}
                     >
-                      <Text style={{ 
-                        fontSize: value === selectedHours ? 18 : 16, 
-                        color: value === selectedHours ? '#fff' : '#333', 
+                      <Text style={{
+                        fontSize: value === selectedHours ? 18 : 16,
+                        color: value === selectedHours ? '#fff' : '#333',
                         fontWeight: value === selectedHours ? 'bold' : 'normal',
                         textAlign: 'center',
                         minWidth: 30
@@ -5424,9 +5470,9 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
-                <Text style={{ 
-                  fontSize: 12, 
-                  color: '#666', 
+                <Text style={{
+                  fontSize: 12,
+                  color: '#666',
                   marginTop: 8,
                   fontWeight: 'bold'
                 }}>
@@ -5435,13 +5481,13 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               </View>
 
               {/* Minutes Column */}
-              <View style={{ 
-                width: 80, 
-                height: 120, 
+              <View style={{
+                width: 80,
+                height: 120,
                 alignItems: 'center',
                 marginRight: 20
               }}>
-                <ScrollView 
+                <ScrollView
                   style={{ height: 120 }}
                   showsVerticalScrollIndicator={false}
                   snapToInterval={40}
@@ -5450,16 +5496,16 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                   scrollEnabled={true}
                   nestedScrollEnabled={true}
                 >
-                  {Array.from({length: 25}, (_, i) => {
+                  {Array.from({ length: 25 }, (_, i) => {
                     const minutesValues = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 59];
                     const value = minutesValues[i] || null;
-                    
+
                     if (value) {
                       return (
-                        <TouchableOpacity 
-                          key={value} 
-                          style={{ 
-                            height: 40, 
+                        <TouchableOpacity
+                          key={value}
+                          style={{
+                            height: 40,
                             justifyContent: 'center',
                             alignItems: 'center',
                             backgroundColor: value === selectedMinutes ? '#FF9800' : 'transparent',
@@ -5469,12 +5515,12 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                           }}
                           onPress={() => {
                             setSelectedMinutes(value);
-                            handleDataFrequencyChange();
+                            handleDataFrequencyChange(selectedHours,value);
                           }}
                         >
-                          <Text style={{ 
-                            fontSize: value === selectedMinutes ? 18 : 16, 
-                            color: value === selectedMinutes ? '#fff' : '#333', 
+                          <Text style={{
+                            fontSize: value === selectedMinutes ? 18 : 16,
+                            color: value === selectedMinutes ? '#fff' : '#333',
                             fontWeight: value === selectedMinutes ? 'bold' : 'normal',
                             textAlign: 'center',
                             minWidth: 30
@@ -5485,10 +5531,10 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                       );
                     } else {
                       return (
-                        <View 
-                          key={`empty-${i}`} 
-                          style={{ 
-                            height: 40, 
+                        <View
+                          key={`empty-${i}`}
+                          style={{
+                            height: 40,
                             width: 60,
                             marginVertical: 2
                           }}
@@ -5497,9 +5543,9 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                     }
                   })}
                 </ScrollView>
-                <Text style={{ 
-                  fontSize: 12, 
-                  color: '#666', 
+                <Text style={{
+                  fontSize: 12,
+                  color: '#666',
                   marginTop: 8,
                   fontWeight: 'bold'
                 }}>
@@ -5561,7 +5607,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               App Theme
             </Text>
           </View>
-          
+
           <Text style={{ fontSize: 14, color: theme.textSecondary, marginBottom: 12 }}>
             Choose your preferred app appearance
           </Text>
@@ -5595,16 +5641,16 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                   <Icon name="white-balance-sunny" size={20} color={themeType === 'light' ? theme.primary : '#666'} />
                 </View>
                 <View>
-                  <Text style={{ 
-                    fontSize: 16, 
-                    fontWeight: '600', 
-                    color: themeType === 'light' ? theme.text : theme.text 
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '600',
+                    color: themeType === 'light' ? theme.text : theme.text
                   }}>
                     Light Theme
                   </Text>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: themeType === 'light' ? theme.textSecondary : theme.textSecondary 
+                  <Text style={{
+                    fontSize: 12,
+                    color: themeType === 'light' ? theme.textSecondary : theme.textSecondary
                   }}>
                     Clean and bright interface
                   </Text>
@@ -5651,16 +5697,16 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                   <Icon name="moon-waning-crescent" size={20} color={themeType === 'dark' ? theme.primary : '#666'} />
                 </View>
                 <View>
-                  <Text style={{ 
-                    fontSize: 16, 
-                    fontWeight: '600', 
-                    color: themeType === 'dark' ? theme.text : theme.text 
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '600',
+                    color: themeType === 'dark' ? theme.text : theme.text
                   }}>
                     Dark Theme
                   </Text>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: themeType === 'dark' ? theme.textSecondary : theme.textSecondary 
+                  <Text style={{
+                    fontSize: 12,
+                    color: themeType === 'dark' ? theme.textSecondary : theme.textSecondary
                   }}>
                     Easy on the eyes in low light
                   </Text>
@@ -5707,16 +5753,16 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                   <Icon name="cellphone-settings" size={20} color={themeType === 'system' ? theme.primary : '#666'} />
                 </View>
                 <View>
-                  <Text style={{ 
-                    fontSize: 16, 
-                    fontWeight: '600', 
-                    color: themeType === 'system' ? theme.text : theme.text 
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '600',
+                    color: themeType === 'system' ? theme.text : theme.text
                   }}>
                     System Theme
                   </Text>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: themeType === 'system' ? theme.textSecondary : theme.textSecondary 
+                  <Text style={{
+                    fontSize: 12,
+                    color: themeType === 'system' ? theme.textSecondary : theme.textSecondary
                   }}>
                     Follows your device settings
                   </Text>
@@ -5737,11 +5783,11 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
             </TouchableOpacity>
           </View>
 
-          <View style={{ 
-            marginTop: 16, 
-            paddingTop: 16, 
-            borderTopWidth: 1, 
-            borderTopColor: theme.border 
+          <View style={{
+            marginTop: 16,
+            paddingTop: 16,
+            borderTopWidth: 1,
+            borderTopColor: theme.border
           }}>
             <View style={{
               backgroundColor: '#fff3cd',
@@ -5755,7 +5801,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                 ⚠️ This will PERMANENTLY overwrite all existing device settings
               </Text>
             </View>
-            
+
             <TouchableOpacity
               style={{
                 backgroundColor: '#2196F3',
@@ -5778,9 +5824,9 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                     console.log('No device connected. Please connect to a device first.');
                     return;
                   }
-                  
+
                   console.log('Refreshing settings from device...');
-                  
+
                   let connectedDevice = device.connectedDevice;
                   if (!connectedDevice) {
                     try {
@@ -5791,31 +5837,31 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
                       return;
                     }
                   }
-                  
+
                   await connectedDevice.discoverAllServicesAndCharacteristics();
-                  
+
                   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
                   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
-                  
+
                   const configCommand = '{$send_device_config}';
                   const encoded = Buffer.from(configCommand, 'utf8');
-                  
+
                   for (let i = 0; i < encoded.length; i += 18) {
                     const chunk = encoded.slice(i, i + 18);
                     const base64Chunk = chunk.toString('base64');
-                    
+
                     await connectedDevice.writeCharacteristicWithoutResponseForService(
                       SERVICE_UUID,
                       F1_WRITE_UUID,
                       base64Chunk
                     );
-                    
+
                     await new Promise(resolve => setTimeout(resolve, 50));
                   }
-                  
+
                   console.log('🔄 Refresh Requested - Device configuration and sensor data refresh commands sent!');
                   console.log('Check the Device Dashboard and Sensor Management to see the updated settings.');
-                  
+
                 } catch (error: any) {
                   console.error('Error refreshing settings from device:', error);
                   console.error('Error refreshing settings:', error.message);
@@ -5833,7 +5879,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
       </ScrollView>
 
       {/* Sensor Data Popup for Settings */}
-      {rawSensorData && (
+      {/* {rawSensorData && (
         <View style={{
           position: 'absolute',
           top: 0,
@@ -5939,7 +5985,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
             </View>
           </View>
         </View>
-      )}
+      )} */}
     </View>
   );
 }
@@ -5981,53 +6027,53 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
 
   const connectAndDiscover = async () => {
     setConnecting(true);
-    
 
-    
+
+
     try {
       const connectedDevice = await manager.connectToDevice(device.id);
       setConnectedDevice(connectedDevice);
       setStatus('Connected');
       setBonded(!!connectedDevice.bonded);
       setLoadingServices(true);
-      
+
       await connectedDevice.discoverAllServicesAndCharacteristics();
       const svcs = await connectedDevice.services();
       setServices(svcs);
-      
 
-      
+
+
       const charsByService = {};
       for (const svc of svcs) {
         const chars = await connectedDevice.characteristicsForService(svc.uuid);
-              const charsWithValue = await Promise.all(chars.map(async (char: any) => {
+        const charsWithValue = await Promise.all(chars.map(async (char: any) => {
           let value = null;
           if (char.isReadable) {
             try {
               const readChar = await connectedDevice.readCharacteristicForService(svc.uuid, char.uuid);
               value = Buffer.from(readChar.value, 'base64').toString('utf8');
-              
 
-                  } catch (e: any) {
+
+            } catch (e: any) {
               value = '[Read error]';
-              
+
 
             }
           }
           return { ...char, value, serviceUUID: svc.uuid };
         }));
-              (charsByService as any)[svc.uuid] = charsWithValue;
+        (charsByService as any)[svc.uuid] = charsWithValue;
       }
       setCharacteristics(charsByService);
       setLoadingServices(false);
-      
+
 
     } catch (e) {
       setStatus('Disconnected');
       setLoadingServices(false);
-      
 
-      
+
+
       console.error('Connection error:', e.message);
     }
     setConnecting(false);
@@ -6035,21 +6081,21 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
 
   const handleWrite = async (serviceUUID: string, charUUID: string) => {
     setWriting(true);
-    
 
-    
+
+
     try {
       const base64Value = Buffer.from(writeValue, 'utf8').toString('base64');
       await connectedDevice.writeCharacteristicWithResponseForService(serviceUUID, charUUID, base64Value);
-      
 
-      
-              console.log('Success: Value written to device!');
+
+
+      console.log('Success: Value written to device!');
       setWriteValue('');
     } catch (e: any) {
 
-      
-              console.log('Write error:', e.message);
+
+      console.log('Write error:', e.message);
     }
     setWriting(false);
   };
@@ -6072,22 +6118,22 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
           (error, characteristic) => {
             if (error) {
               console.log('Notify error:', error);
-              
+
 
               return;
             }
             if (characteristic && characteristic.value) {
               const newValue = Buffer.from(characteristic.value, 'base64').toString('utf8');
               console.log('Received notification:', newValue);
-              
 
-              
+
+
               // Update the characteristic value in the state
               setCharacteristics(prev => {
                 const newChars = { ...prev };
                 if (newChars[serviceUUID]) {
-                  newChars[serviceUUID] = newChars[serviceUUID].map(char => 
-                    char.uuid === charUUID 
+                  newChars[serviceUUID] = newChars[serviceUUID].map(char =>
+                    char.uuid === charUUID
                       ? { ...char, value: newValue }
                       : char
                   );
@@ -6102,37 +6148,37 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
         console.log('Success: Notifications enabled');
       }
     } catch (e) {
-              console.log('Notify error:', e.message);
+      console.log('Notify error:', e.message);
     }
   };
 
   const handleRead = async (serviceUUID, charUUID) => {
 
-    
+
     try {
       const readChar = await connectedDevice.readCharacteristicForService(serviceUUID, charUUID);
       const newValue = Buffer.from(readChar.value, 'base64').toString('utf8');
-      
 
-      
+
+
       // Update the characteristic value in the state
       setCharacteristics(prev => {
         const newChars = { ...prev };
         if (newChars[serviceUUID]) {
-          newChars[serviceUUID] = newChars[serviceUUID].map(char => 
-            char.uuid === charUUID 
+          newChars[serviceUUID] = newChars[serviceUUID].map(char =>
+            char.uuid === charUUID
               ? { ...char, value: newValue }
               : char
           );
         }
         return newChars;
       });
-      
-              console.log('Read Success:', `Value: ${newValue}`);
+
+      console.log('Read Success:', `Value: ${newValue}`);
     } catch (e) {
 
-      
-              console.log('Read error:', e.message);
+
+      console.log('Read error:', e.message);
     }
   };
 
@@ -6145,7 +6191,7 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
             manager.cancelTransaction(charKey).catch(console.error);
           }
         });
-        
+
         // Use the manager to disconnect the device
         await manager.cancelDeviceConnection(connectedDevice.id);
         setConnectedDevice(null);
@@ -6165,7 +6211,7 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
       setCharacteristics({});
       setNotifyStates({});
       setBonded(false);
-              console.error('Disconnect error:', e.message);
+      console.error('Disconnect error:', e.message);
     }
   };
 
@@ -6246,17 +6292,17 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
                         <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>Read</Text>
                       </TouchableOpacity>
                     )}
-                    
+
                     {/* Notify buttons */}
                     {char.isNotifiable && (
                       <View style={{ flexDirection: 'row', gap: 8 }}>
                         {!notifyStates[`${svc.uuid}-${char.uuid}`] ? (
                           <TouchableOpacity
-                            style={{ 
-                              backgroundColor: '#4CAF50', 
-                              paddingHorizontal: 12, 
-                              paddingVertical: 6, 
-                              borderRadius: 6 
+                            style={{
+                              backgroundColor: '#4CAF50',
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 6
                             }}
                             onPress={() => handleNotify(svc.uuid, char.uuid)}
                           >
@@ -6266,11 +6312,11 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
                           </TouchableOpacity>
                         ) : (
                           <TouchableOpacity
-                            style={{ 
-                              backgroundColor: '#f44336', 
-                              paddingHorizontal: 12, 
-                              paddingVertical: 6, 
-                              borderRadius: 6 
+                            style={{
+                              backgroundColor: '#f44336',
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 6
                             }}
                             onPress={() => handleNotify(svc.uuid, char.uuid)}
                           >
@@ -6281,7 +6327,7 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
                         )}
                       </View>
                     )}
-                    
+
                     {/* Write input for WRITE characteristic */}
                     {(char.uuid.toLowerCase() === '0000fff1-0000-1000-8000-00805f9b34fb') && (
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, width: '100%' }}>
@@ -6309,7 +6355,7 @@ function DeviceDetailsScreen({ route, navigation }: { route: any; navigation: an
         {!loadingServices && services.length === 0 && (
           <Text style={{ color: '#888' }}>No services found</Text>
         )}
-    </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -6328,7 +6374,7 @@ function AdvertiserScreen() {
 function SensorCalibrationScreen({ route, navigation }: { route: any; navigation: any }) {
   const { theme } = useTheme();
   const [selectedSensor, setSelectedSensor] = useState<string | null>(null);
-  const [calibrationData, setCalibrationData] = useState<{ [key: string]: {key:string, offset: string; scale: string ,is_en:boolean } }>({});
+  const [calibrationData, setCalibrationData] = useState<{ [key: string]: { key: string, offset: string; scale: string, is_en: boolean } }>({});
   const [offsetValue, setOffsetValue] = useState('');
   const [scaleValue, setScaleValue] = useState('');
   const [deviceSensors, setDeviceSensors] = useState<{ [key: string]: { offset: number; scale: number; is_en: number } }>({});
@@ -6371,7 +6417,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     }
   };
 
-  const saveCalibrationData = async (data: { [key: string]: { offset: string; scale: string,is_en:boolean } }) => {
+  const saveCalibrationData = async (data: { [key: string]: { offset: string; scale: string, is_en: boolean } }) => {
     try {
       await saveToStorage('SENSOR_CALIBRATION_DATA', data);
     } catch (error) {
@@ -6380,120 +6426,117 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   };
 
   const parseSensorConfig = (data: string) => {
-  try {
-    console.log('Parsing sensor config data:', data);
+    try {
+      console.log('Parsing sensor config data:', data);
 
-    // Remove { } wrapper
-    const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
-    console.log('Cleaned sensor config data:', cleanData);
+      // Remove { } wrapper
+      const cleanData = data.replace(/^[{}]+|[{}]+$/g, '');
+      console.log('Cleaned sensor config data:', cleanData);
 
-    const sensorData: {
-      [key: string]: {
-        key: string;
-        offset: number;
-        scale: number;
-        is_en: number;
-        val: number;
-        rs485: boolean;
-        response: string;
-      };
-    } = {};
-    const sensorNames: string[] = []; // Array to store just the sensor names
-
-    // Use while loop to find all S_Name:%s patterns
-    let currentData = cleanData;
-    let startIndex = 0;
-
-    while (true) {
-      // Find next S_Name: occurrence
-      const sNameIndex = currentData.indexOf('S_Name:', startIndex);
-      if (sNameIndex === -1) break; // No more S_Name: found
-
-      // Find the end of this sensor entry (next S_Name: or end of string)
-      const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
-      const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
-
-      // Extract this sensor entry
-      const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
-      console.log('Processing sensor entry:', sensorEntry);
-
-      try {
-        // Parse the sensor name (everything before first comma)
-        const commaIndex = sensorEntry.indexOf(',');
-        if (commaIndex === -1) {
-          console.log('Skipping sensor entry with no comma');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        const sensorName = sensorEntry.substring(0, commaIndex).trim();
-        console.log('Found sensor name:', sensorName);
-
-        // Skip entries with empty S_Name
-        if (!sensorName) {
-          console.log('Skipping sensor entry with empty S_Name');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        // Parse the key (Key:<value>)
-        const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
-        const key = keyMatch ? keyMatch[1].trim() : '';
-
-        // Skip entries with empty Key
-        if (!key) {
-          console.log('Skipping sensor entry with empty Key');
-          startIndex = sNameIndex + 7;
-          continue;
-        }
-
-        // Handle duplicate sensor names
-        const existingCount = sensorNames.filter(name => name === sensorName).length;
-        const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
-        sensorNames.push(uniqueSensorKey);
-
-        // Extract other fields
-        const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-        const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-        const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
-        const valMatch = sensorEntry.match(/Val:([^,}]+)/);
-        const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
-        const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
-
-        sensorData[uniqueSensorKey] = {
-          key,
-          offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
-          scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
-          is_en: parseFloat(isEnMatch[1]),
-          val: valMatch ? parseFloat(valMatch[1]) : 0,
-          rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
-          response: responseMatch ? responseMatch[1] : 'Unknown',
+      const sensorData: {
+        [key: string]: {
+          key: string;
+          offset: number;
+          scale: number;
+          is_en: number;
+          val: number;
+          rs485: boolean;
+          response: string;
         };
+      } = {};
+      const sensorNames: string[] = []; // Array to store just the sensor names
 
-        console.log(
-          `Parsed sensor: ${uniqueSensorKey}, Key: ${sensorData[uniqueSensorKey].key}, Offset: ${
-            sensorData[uniqueSensorKey].offset
-          }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${
-            sensorData[uniqueSensorKey].is_en
-          }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${
-            sensorData[uniqueSensorKey].rs485
-          }, Response: ${sensorData[uniqueSensorKey].response}`
-        );
-      } catch (sensorError) {
-        console.log('Error parsing individual sensor:', sensorError);
+      // Use while loop to find all S_Name:%s patterns
+      let currentData = cleanData;
+      let startIndex = 0;
+
+      while (true) {
+        // Find next S_Name: occurrence
+        const sNameIndex = currentData.indexOf('S_Name:', startIndex);
+        if (sNameIndex === -1) break; // No more S_Name: found
+
+        // Find the end of this sensor entry (next S_Name: or end of string)
+        const nextSNameIndex = currentData.indexOf('S_Name:', sNameIndex + 7);
+        const endIndex = nextSNameIndex !== -1 ? nextSNameIndex : currentData.length;
+
+        // Extract this sensor entry
+        const sensorEntry = currentData.substring(sNameIndex + 7, endIndex);
+        console.log('Processing sensor entry:', sensorEntry);
+
+        try {
+          // Parse the sensor name (everything before first comma)
+          const commaIndex = sensorEntry.indexOf(',');
+          if (commaIndex === -1) {
+            console.log('Skipping sensor entry with no comma');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          const sensorName = sensorEntry.substring(0, commaIndex).trim();
+          console.log('Found sensor name:', sensorName);
+
+          // Skip entries with empty S_Name
+          if (!sensorName) {
+            console.log('Skipping sensor entry with empty S_Name');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          // Parse the key (Key:<value>)
+          const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+          const key = keyMatch ? keyMatch[1].trim() : '';
+
+          // Skip entries with empty Key
+          if (!key) {
+            console.log('Skipping sensor entry with empty Key');
+            startIndex = sNameIndex + 7;
+            continue;
+          }
+
+          // Handle duplicate sensor names
+          const existingCount = sensorNames.filter(name => name === sensorName).length;
+          const uniqueSensorKey = existingCount > 0 ? `${sensorName}_${existingCount + 1}` : sensorName;
+          sensorNames.push(uniqueSensorKey);
+
+          // Extract other fields
+          const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
+          const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+          const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
+          const valMatch = sensorEntry.match(/Val:([^,}]+)/);
+          const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
+          const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+
+          sensorData[uniqueSensorKey] = {
+            key,
+            offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
+            scale: scaleMatch ? parseFloat(scaleMatch[1]) : 1,
+            is_en: parseFloat(isEnMatch[1]),
+            val: valMatch ? parseFloat(valMatch[1]) : 0,
+            rs485: rs485Match ? rs485Match[1].toLowerCase() === 'yes' : false,
+            response: responseMatch ? responseMatch[1] : 'Unknown',
+          };
+
+          console.log(
+            `Parsed sensor: ${uniqueSensorKey}, Key: ${sensorData[uniqueSensorKey].key}, Offset: ${sensorData[uniqueSensorKey].offset
+            }, Scale: ${sensorData[uniqueSensorKey].scale}, Active: ${sensorData[uniqueSensorKey].is_en
+            }, Val: ${sensorData[uniqueSensorKey].val}, RS485: ${sensorData[uniqueSensorKey].rs485
+            }, Response: ${sensorData[uniqueSensorKey].response}`
+          );
+        } catch (sensorError) {
+          console.log('Error parsing individual sensor:', sensorError);
+        }
+
+        // Move to next position
+        startIndex = sNameIndex + 7;
       }
 
-      // Move to next position
-      startIndex = sNameIndex + 7;
+      console.log('Final parsed sensor config:', sensorData);
+      return sensorData;
+    } catch (error) {
+      console.log('Error parsing sensor config:', error);
+      return {};
     }
-
-    console.log('Final parsed sensor config:', sensorData);
-    return sensorData;
-  } catch (error) {
-    console.log('Error parsing sensor config:', error);
-    return {};
-  }
-};
+  };
 
   const loadDeviceSensors = async () => {
     try {
@@ -6508,7 +6551,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   const buildSensorConfigPacket = (sensors: { [key: string]: { offset: number; scale: number; is_en: number } }) => {
     let packet = '{$sensor_config$';
     Object.entries(sensors).forEach(([sensorKey, config]) => {
-      const isActive = config.is_en ;
+      const isActive = config.is_en;
       packet += `Key:${sensorKey},Offset:${config.offset.toFixed(2)},Scale:${config.scale.toFixed(2)},is_en:${isActive},`;
     });
     packet = packet.slice(0, -1) + '}';
@@ -6516,17 +6559,21 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
     return packet;
   };
 
-  const sendSensorConfiguration = async (sensors: { [key: string]: {offset: number; scale: number; is_en: number } }) => {
+  const sendSensorConfiguration = async (sensors: { [key: string]: { offset: number; scale: number; is_en: number } }) => {
     try {
-      const { device } = route.params || {};
-      if (!device) {
+      let { device } = route.params || {};
+      console.log("DEvice in cal", device)
+      let connectedDevice;
+      if (!device || !device.isConnected) {
         console.log('No device available for sending sensor config');
+        connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
         Alert.alert('Error', 'No device available for sending sensor configuration.');
         return false;
       }
+      connectedDevice = await device.connectedDevice
+      console.log("Connected Device", connectedDevice)
+      console.log('=== SENDING SENSOR CONFIGURATION TO DEVICE ===', sensors);
 
-      console.log('=== SENDING SENSOR CONFIGURATION TO DEVICE ===');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
 
       const configPacket = buildSensorConfigPacket(sensors);
@@ -6613,7 +6660,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   const monitorF3ForSensorConfig = (connectedDevice: Device): Promise<string> => {
     return new Promise((resolve, reject) => {
       let responseData = '';
-      
+
 
       const subscription = connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
@@ -6621,7 +6668,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
         (error, characteristic) => {
           if (error) {
             console.log('F3 monitoring error (sensor config):', error);
-           
+
             subscription.remove();
             reject(error);
             return;
@@ -6638,7 +6685,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
               const completeMessage = responseData.substring(start, end);
 
               console.log('Complete sensor config message:', completeMessage);
-             
+
               subscription.remove();
               resolve(completeMessage);
             }
@@ -6688,11 +6735,11 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   };
 
   const handleToggleActive = (sensor: string) => {
-    console.log(sensor,"toggglglglglg")
+    console.log(sensor, "toggglglglglg")
     setDeviceSensors(prev => {
       const updated = {
         ...prev,
-        [sensor]: { ...prev[sensor], is_en: !prev[sensor].is_en },
+        [sensor]: { ...prev[sensor], is_en: prev[sensor].is_en == 1 ? 0 : 1 },
       };
       console.log('Updated deviceSensors active state:', updated);
       return updated;
@@ -7179,7 +7226,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
                 const sensorConfig: { [key: string]: { offset: number; scale: number; is_en: number } } = {};
                 Object.entries(deviceSensors).forEach(([sensorKey, config]) => {
                   sensorConfig[sensorKey] = {
-                    
+
                     offset: config.offset,
                     scale: config.scale,
                     is_en: config.is_en,
@@ -7272,43 +7319,545 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   );
 }
 
+
+const Terminal: React.FC<{ navigation: any; route: any }> = ({ navigation, route }) => {
+  const { theme, isDark } = useTheme(); // Use custom ThemeContext
+  const { device } = route.params || {};
+  const [logs, setLogs] = useState<string[]>([]);
+  const [command, setCommand] = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
+  const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+  const F3_NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+
+  // Parse a single log entry string like "{D:2025-01-01,T:00:00:00,Server:NODE_001,...}"
+  const parseLogEntry = (log: string) => {
+    const trimmed = log.replace(/^{|}$/g, '');
+    const parts = trimmed.split(',');
+    let entry: Record<string, string> = {};
+    parts.forEach((p) => {
+      const [key, value] = p.split(':');
+      if (key && value) {
+        entry[key.trim()] = value.trim();
+      }
+    });
+    return entry;
+  };
+
+  // Send command in chunks to BLE device
+  const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
+    try {
+      const encoded = Buffer.from(command, 'utf8');
+      console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
+
+      for (let i = 0; i < encoded.length; i += chunkSize) {
+        const chunk = encoded.slice(i, i + chunkSize);
+        const base64Chunk = chunk.toString('base64');
+        console.log(`Sending chunk ${Math.floor(i / chunkSize) + 1}: ${chunk.toString('utf8')}`);
+        await device.writeCharacteristicWithoutResponseForService(SERVICE_UUID, F1_WRITE_UUID, base64Chunk);
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      console.log('Command sent successfully in chunks');
+      return true;
+    } catch (error) {
+      console.log('Error sending command in chunks:', error);
+      setError(`Failed to send command: ${error}`);
+      return false;
+    }
+  };
+
+  // Monitor F3_NOTIFY_UUID for device responses
+  const monitorF3ForLogs = (device: any) => {
+    return new Promise((resolve, reject) => {
+      let buffer = '';
+      let logs: any[] = [];
+      let inactivityTimer: NodeJS.Timeout;
+      let maxTimer: NodeJS.Timeout;
+      let onceResolved = false;
+
+      const finish = (result: any) => {
+        if (onceResolved) return;
+        onceResolved = true;
+        clearTimeout(inactivityTimer);
+        clearTimeout(maxTimer);
+        try {
+          subscription.remove();
+        } catch (e) {
+          console.log('⚠️ Tried to remove subscription but it was already gone');
+        }
+        resolve(result);
+      };
+
+      const subscription = device.monitorCharacteristicForService(
+        SERVICE_UUID,
+        F3_NOTIFY_UUID,
+        (error: any, characteristic: any) => {
+          if (error) {
+            console.log('❌ Error monitoring F3 for logs:', error);
+            finish(logs.length ? logs : null);
+            return;
+          }
+
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('📩 F3 log chunk received:', chunk);
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Device Response: ${chunk}`]);
+
+            buffer += chunk;
+            let startIdx = buffer.indexOf('{');
+            let endIdx = buffer.indexOf('}', startIdx);
+            while (startIdx !== -1 && endIdx !== -1) {
+              const logEntry = buffer.substring(startIdx, endIdx + 1);
+              try {
+                const parsed = parseLogEntry(logEntry);
+                logs.push(parsed);
+                setLogs(prev => [
+                  ...prev,
+                  `[${new Date().toLocaleTimeString()}] Parsed Response:\n${JSON.stringify(parsed, null, 2)}`,
+                ]);
+              } catch (e) {
+                console.log('⚠️ Failed to parse log entry:', logEntry);
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Failed to parse: ${logEntry}`]);
+              }
+              buffer = buffer.substring(endIdx + 1);
+              startIdx = buffer.indexOf('{');
+              endIdx = buffer.indexOf('}', startIdx);
+            }
+
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(() => {
+              console.log('⏳ Logs collection inactivity timeout');
+              finish(logs.length ? logs : null);
+            }, 5000);
+          }
+        }
+      );
+
+      maxTimer = setTimeout(() => {
+        console.log('⏰ Max logs monitoring timeout reached');
+        finish(logs.length ? logs : null);
+      }, 20000);
+    });
+  };
+
+  // Handle command submission
+  const handleCommandSubmit = async () => {
+    if (!device) {
+      setError('No device selected');
+      Alert.alert('Error', 'No device selected');
+      return;
+    }
+    if (!command.trim()) {
+      setError('Command cannot be empty');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Command Sent: ${command}`]);
+
+    try {
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Device connected for command');
+
+      const commandSent = await sendCommandInChunks(connectedDevice, command);
+      if (commandSent) {
+        console.log('✅ Command sent, monitoring for response');
+        await monitorF3ForLogs(connectedDevice);
+      } else {
+        setError('Failed to send command');
+        Alert.alert('Error', 'Failed to send command');
+      }
+    } catch (error) {
+      console.log('❌ Error sending command:', error);
+      setError(`Error sending command: ${error}`);
+      Alert.alert('Error', `Error sending command: ${error}`);
+    } finally {
+      setIsLoading(false);
+    }
+
+    setCommand('');
+  };
+
+  // Clear logs
+  const clearLogs = async () => {
+    if (!device) {
+      setError('No device selected');
+      Alert.alert('Error', 'No device selected');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Clearing logs...`]);
+
+    try {
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      const command = '{$delete_logs}';
+      const commandSent = await sendCommandInChunks(connectedDevice, command);
+
+      if (commandSent) {
+        setLogs([`[${new Date().toLocaleTimeString()}] Logs cleared successfully`]);
+        Alert.alert('Success', 'Device logs cleared successfully');
+      } else {
+        setError('Failed to send clear logs command');
+        Alert.alert('Error', 'Failed to send clear logs command');
+      }
+    } catch (error) {
+      console.log('❌ Error clearing logs:', error);
+      setError(`Error clearing logs: ${error}`);
+      Alert.alert('Error', `Error clearing logs: ${error}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Auto-scroll to bottom when logs update
+  useEffect(() => {
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [logs]);
+
+  // Initialize with a welcome message
+  useEffect(() => {
+    setLogs([`[${new Date().toLocaleTimeString()}] Terminal initialized`]);
+  }, []);
+
+  // Loading screen
+  if (isLoading) {
+    return (
+      <View style={[stylesTerminal.loadingContainer]}>
+        <StatusBar
+
+
+          translucent
+        />
+        <View style={[stylesTerminal.loadingHeader]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={stylesTerminal.backButton}
+          >
+            <Text style={[stylesTerminal.backButtonText,]}>‹</Text>
+          </TouchableOpacity>
+          <Text style={[stylesTerminal.headerText]}>Terminal</Text>
+        </View>
+        <View style={stylesTerminal.loadingContent}>
+          <ActivityIndicator size="large" />
+          <Text style={[stylesTerminal.loadingText,]}>
+            Communicating with {device?.name || 'Device'}...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[stylesTerminal.container,]}>
+      <StatusBar
+
+
+        translucent
+      />
+      {/* Header */}
+      <View style={[stylesTerminal.header,]}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={[stylesTerminal.backButton, { backgroundColor: theme.overlayLight }]}
+        >
+          <Icon name="arrow-left" size={20} />
+        </TouchableOpacity>
+        <Text style={[stylesTerminal.headerText,]}>Terminal</Text>
+      </View>
+
+      {/* Device Info */}
+      {device && (
+        <View style={[stylesTerminal.deviceInfo,]}>
+          <Text style={[stylesTerminal.deviceInfoTitle, {}]}>
+            Connected Device
+          </Text>
+          <Text style={[stylesTerminal.deviceInfoText,]}>
+            Name: {device.name || 'Unknown'}
+          </Text>
+          <Text style={[stylesTerminal.deviceInfoText, { fontFamily: 'monospace' }]}>
+            ID: {device.id}
+          </Text>
+        </View>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <View style={[stylesTerminal.errorContainer, { backgroundColor: theme.errorBackgroundColor || '#ffebee', borderLeftColor: theme.errorColor || '#f44336' }]}>
+          <Text style={[stylesTerminal.errorTitle, { color: theme.errorColor || '#c62828' }]}>Error</Text>
+          <Text style={[stylesTerminal.errorText, { color: theme.errorColor || '#c62828' }]}>{error}</Text>
+        </View>
+      )}
+
+      {/* Command Input */}
+      <View style={[stylesTerminal.inputContainer, { backgroundColor: theme.inputBackgroundColor || '#2a2a2a', borderTopColor: theme.borderColor || '#333' }]}>
+        <Text style={[stylesTerminal.prompt, { color: theme.promptColor || '#0f0' }]}>$</Text>
+        <TextInput
+          style={[stylesTerminal.input, { backgroundColor: theme.inputFieldColor || '#333' }]}
+          value={command}
+          onChangeText={setCommand}
+          placeholder="Enter command (e.g., {$send_logs})"
+          placeholderTextColor={theme.textSecondaryColor || '#888'}
+          onSubmitEditing={handleCommandSubmit}
+          returnKeyType="send"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      {/* Logs Display */}
+      <View style={stylesTerminal.logContainer}>
+        <View style={[stylesTerminal.logBox, { backgroundColor: theme.surfaceColor || (isDark ? '#1a1a1a' : '#fff') }]}>
+          <View style={stylesTerminal.logHeader}>
+            <Text style={[stylesTerminal.logHeaderText,]}>
+              Logs ({logs.length} entries)
+            </Text>
+            <TouchableOpacity onPress={clearLogs} style={stylesTerminal.clearButton}>
+              <Icon name="delete" size={20} color={theme.errorColor || '#ff4444'} />
+              <Text style={[stylesTerminal.clearButtonText, { color: theme.errorColor || '#ff4444' }]}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            ref={scrollViewRef}
+            style={stylesTerminal.scrollView}
+            contentContainerStyle={stylesTerminal.scrollContent}
+          >
+            {logs.length === 0 ? (
+              <View style={stylesTerminal.emptyLogs}>
+                <Icon name="file-document-outline" size={48} />
+                <Text style={[stylesTerminal.emptyLogsText,]}>
+                  No logs available{'\n'}Enter a command to interact with the device
+                </Text>
+              </View>
+            ) : (
+              logs.map((log, index) => (
+                <Text key={index} style={[stylesTerminal.logText, { color: theme.logTextColor || '#0f0' }]}>
+                  {log}
+                </Text>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </View>
+  );
+};
+const stylesTerminal = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 20 : 0,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  backButtonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  headerText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  deviceInfo: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#00bcd4',
+  },
+  deviceInfoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  deviceInfoText: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  errorContainer: {
+    backgroundColor: '#ffebee',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f44336',
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  errorText: {
+    fontSize: 12,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    backgroundColor: '#2a2a2a',
+  },
+  prompt: {
+    fontSize: 16,
+    color: '#0f0',
+    marginRight: 5,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    backgroundColor: '#333',
+    borderRadius: 5,
+    padding: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+  },
+  logContainer: {
+    flex: 1,
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  logBox: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  logHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  logHeaderText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  clearButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    fontSize: 14,
+    color: '#ff4444',
+    marginLeft: 5,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 10,
+  },
+  logText: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  emptyLogs: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyLogsText: {
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  loadingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+  },
+  loadingContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+});
 function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) {
   const theme = useTheme();
   const { device } = route.params || {};
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState('');
-  const[logsLoading,setLogsLoading]=useState(false)
+  const [logsLoading, setLogsLoading] = useState(false)
   const parseDeviceLogs = (rawLogs: string): string[] => {
-  try {
-    // Example: if logs are separated by newlines
-    return rawLogs.split('\n').filter(line => line.trim() !== '');
-  } catch {
-    return [];
-  }
-};
+    try {
+      // Example: if logs are separated by newlines
+      return rawLogs.split('\n').filter(line => line.trim() !== '');
+    } catch {
+      return [];
+    }
+  };
 
 
   const sendCommandInChunks = async (device: any, command: string, chunkSize: number = 18) => {
     try {
       const encoded = Buffer.from(command, 'utf8');
       console.log(`Sending command "${command}" in chunks of ${chunkSize} bytes`);
-      
+
       for (let i = 0; i < encoded.length; i += chunkSize) {
         const chunk = encoded.slice(i, i + chunkSize);
         const base64Chunk = chunk.toString('base64');
-        
-        console.log(`Sending chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.toString('utf8')}`);
-        
+
+        console.log(`Sending chunk ${Math.floor(i / chunkSize) + 1}: ${chunk.toString('utf8')}`);
+
         await device.writeCharacteristicWithoutResponseForService(
           SERVICE_UUID,
           F1_WRITE_UUID,
           base64Chunk
         );
-        
+
         // Small delay between chunks
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      
+
       console.log('Command sent successfully in chunks');
       return true;
     } catch (error) {
@@ -7319,49 +7868,49 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
 
 
   const clearLogs = async () => {
-  try {
-    const { device } = route.params || {};
-    if (!device) {
-      console.log('No device available for clearing logs');
-      Alert.alert('Error', 'No device available for clearing logs.');
-      return;
-    }
-
-    console.log('=== CLEARING DEVICE LOGS ===');
-    
-    // Cancel any existing connection
     try {
-      await manager.cancelDeviceConnection(device.id);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (error) {
-      console.log('Ignoring cancel connection error for log clearing');
+      const { device } = route.params || {};
+      if (!device) {
+        console.log('No device available for clearing logs');
+        Alert.alert('Error', 'No device available for clearing logs.');
+        return;
+      }
+
+      console.log('=== CLEARING DEVICE LOGS ===');
+
+      // Cancel any existing connection
+      try {
+        await manager.cancelDeviceConnection(device.id);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.log('Ignoring cancel connection error for log clearing');
+      }
+
+      // Connect to device
+      console.log('🔌 Connecting to device for log clearing...');
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Device connected & services discovered for log clearing');
+
+      // Send delete logs command
+      const command = '{$delete_logs}';
+      console.log(`➡️ Sending delete log command: "${command}"`);
+      const commandSent = await sendCommandInChunks(connectedDevice, command);
+
+      if (commandSent) {
+        console.log('✅ Delete logs command sent successfully');
+        setLogs([]); // Clear local logs
+        setError(''); // Clear error state
+        Alert.alert('Success', 'Device logs cleared successfully.');
+      } else {
+        console.log('❌ Failed to send delete logs command');
+        Alert.alert('Error', 'Failed to send delete logs command. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Error clearing logs:', error.message);
+      Alert.alert('Error', 'An error occurred while clearing logs.');
     }
-
-    // Connect to device
-    console.log('🔌 Connecting to device for log clearing...');
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log('✅ Device connected & services discovered for log clearing');
-
-    // Send delete logs command
-    const command = '{$delete_logs}';
-    console.log(`➡️ Sending delete log command: "${command}"`);
-    const commandSent = await sendCommandInChunks(connectedDevice, command);
-
-    if (commandSent) {
-      console.log('✅ Delete logs command sent successfully');
-      setLogs([]); // Clear local logs
-      setError(''); // Clear error state
-      Alert.alert('Success', 'Device logs cleared successfully.');
-    } else {
-      console.log('❌ Failed to send delete logs command');
-      Alert.alert('Error', 'Failed to send delete logs command. Please try again.');
-    }
-  } catch (error: any) {
-    console.error('Error clearing logs:', error.message);
-    Alert.alert('Error', 'An error occurred while clearing logs.');
-  }
-};
+  };
   const DEVICE_STATUS_COMMAND = '{$send_device_status}';
   const SERVICE_UUID = '00000180-0000-1000-8000-00805f9b34fb';
   const F1_WRITE_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
@@ -7374,104 +7923,124 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
   };
 
   // Parse a single log entry string like "{D:2025-01-01,T:00:00:00,Server:NODE_001,...}"
-const parseLogEntry = (log: string) => {
-  // Remove outer braces
-  const trimmed = log.replace(/^{|}$/g, "");
-
-  // Split by commas
-  const parts = trimmed.split(",");
-
-  let entry: Record<string, string> = {};
-  parts.forEach((p) => {
-    const [key, value] = p.split(":");
-    if (key && value) {
-      entry[key.trim()] = value.trim();
-    }
-  });
-
-  return entry;
-};
-
-
-const monitorF3ForLogs = (device: any) => {
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    let logs: any[] = [];
-    let inactivityTimer: NodeJS.Timeout;
-    let maxTimer: NodeJS.Timeout;
-    let onceResolved = false;
-
-    const finish = (result: any) => {
-      if (onceResolved) return;
-      onceResolved = true;
-      clearTimeout(inactivityTimer);
-      clearTimeout(maxTimer);
-      try {
-        subscription.remove();
-      } catch (e) {
-        console.log("⚠️ Tried to remove subscription but it was already gone");
-      }
-      resolve(result);
-    };
-
-    const subscription = device.monitorCharacteristicForService(
-      SERVICE_UUID,
-      F3_NOTIFY_UUID,
-      (error: any, characteristic: any) => {
-        if (error) {
-          console.log('❌ Error monitoring F3 for logs:', error);
-          finish(logs.length ? logs : null);
-          return;
+  const parseLogEntry = (logEntry: string): Record<string, any> | null => {
+    try {
+      // Remove surrounding braces if any
+      const cleaned = logEntry.replace(/^[{}]+|[{}]+$/g, '');
+      console.log('Parsing log entry:', cleaned);
+      const pairs = cleaned.split(',');
+      const logData: Record<string, any> = {};
+      pairs.forEach(pair => {
+        const [key, value] = pair.split(':');
+        if (key && value !== undefined) {
+          const cleanKey = key.trim();
+          const cleanValue = value.trim();
+          logData[cleanKey] = cleanValue;
+          console.log(`Parsed log: ${cleanKey} = ${cleanValue}`);
         }
+      });
+      return Object.keys(logData).length > 0 ? logData : null;
+    } catch (error) {
+      console.warn('⚠️ Failed to parse log entry:', error);
+      return null;
+    }
+  };
 
-        if (characteristic?.value) {
-          const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
-          console.log('📩 F3 log chunk received:', chunk);
+  const monitorF3ForLogs = (device: any) => {
+    return new Promise((resolve, reject) => {
+      let buffer = '';
+      let logs: any[] = [];
+      let inactivityTimer: NodeJS.Timeout;
+      let maxTimer: NodeJS.Timeout;
+      let onceResolved = false;
 
-          buffer += chunk;
+      const finish = (result: any) => {
+        if (onceResolved) return;
+        onceResolved = true;
+        clearTimeout(inactivityTimer);
+        clearTimeout(maxTimer);
+        try {
+          subscription.remove();
+          console.log('✅ Removed log subscription');
+        } catch (e) {
+          console.warn('⚠️ Tried to remove subscription but it was already gone');
+        }
+        resolve(result);
+      };
 
-          // Extract {...} blocks
-          let startIdx = buffer.indexOf('{');
-          let endIdx = buffer.indexOf('}', startIdx);
-          while (startIdx !== -1 && endIdx !== -1) {
-            const logEntry = buffer.substring(startIdx, endIdx + 1);
-            try {
-              const parsed = parseLogEntry(logEntry);
-              logs.push(parsed);
-            } catch (e) {
-              console.log("⚠️ Failed to parse log entry:", logEntry);
-            }
-            buffer = buffer.substring(endIdx + 1);
-            startIdx = buffer.indexOf('{');
-            endIdx = buffer.indexOf('}', startIdx);
+      const subscription = device.monitorCharacteristicForService(
+        SERVICE_UUID,
+        F3_NOTIFY_UUID,
+        (error: any, characteristic: any) => {
+          if (error) {
+            console.error('❌ Error monitoring F3 for logs:', error);
+            finish(logs.length ? logs : null);
+            return;
           }
 
-          // Reset inactivity timeout (no data for 5s → finish)
-          clearTimeout(inactivityTimer);
-          inactivityTimer = setTimeout(() => {
-            console.log('⏳ Logs collection inactivity timeout');
-            finish(logs.length ? logs : null);
-          }, 5000);
+          if (characteristic?.value) {
+            const chunk = Buffer.from(characteristic.value, 'base64').toString('utf8');
+            console.log('📩 F3 log chunk received:', chunk);
+
+            buffer += chunk;
+
+            // Extract complete log blocks between {$log_start$} and {$log_end$}
+            let startIdx = buffer.indexOf('{$log_start$}');
+            let endIdx = buffer.indexOf('{$log_end$}');
+            while (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+              const logBlock = buffer.substring(startIdx + 13, endIdx); // Skip {$log_start$}
+              console.log('📜 Extracted log block:', logBlock);
+
+              // Parse multiple JSON-like objects within the block
+              let jsonStart = logBlock.indexOf('{');
+              let jsonEnd = logBlock.indexOf('}', jsonStart);
+              while (jsonStart !== -1 && jsonEnd !== -1) {
+                const jsonEntry = logBlock.substring(jsonStart, jsonEnd + 1);
+                try {
+                  const parsed = parseLogEntry(jsonEntry);
+                  if (parsed) {
+                    logs.push(parsed);
+                    console.log('✅ Parsed log entry:', parsed);
+                  }
+                } catch (e) {
+                  console.warn('⚠️ Failed to parse log entry:', jsonEntry, e);
+                }
+                // Move to the next JSON object
+                jsonStart = logBlock.indexOf('{', jsonEnd + 1);
+                jsonEnd = logBlock.indexOf('}', jsonStart);
+              }
+
+              buffer = buffer.substring(endIdx + 9); // Skip {$log_end$}
+              startIdx = buffer.indexOf('{$log_start$}');
+              endIdx = buffer.indexOf('{$log_end$}');
+            }
+
+            // Reset inactivity timeout (5s)
+            clearTimeout(inactivityTimer);
+            inactivityTimer = setTimeout(() => {
+              console.log('⏳ Logs collection inactivity timeout');
+              finish(logs.length ? logs : null);
+            }, 5000);
+          }
         }
-      }
-    );
+      );
 
-    // Max timeout safety (20s)
-    maxTimer = setTimeout(() => {
-      console.log('⏰ Max logs monitoring timeout reached');
-      finish(logs.length ? logs : null);
-    }, 20000);
-  });
-};
-
+      // Max timeout safety (20s)
+      maxTimer = setTimeout(() => {
+        console.log('⏰ Max logs monitoring timeout reached');
+        finish(logs.length ? logs : null);
+      }, 20000);
+    });
+  };
 
 
 
-    const monitorF3ForDeviceConfig = async (device: any) => {
+
+  const monitorF3ForDeviceConfig = async (device: any) => {
     return new Promise((resolve) => {
       let responseBuffer = '';
       let timeout: NodeJS.Timeout;
-      
+
       const subscription = device.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
@@ -7482,22 +8051,22 @@ const monitorF3ForLogs = (device: any) => {
             resolve(null);
             return;
           }
-          
+
           if (characteristic && characteristic.value) {
             const value = Buffer.from(characteristic.value, 'base64').toString('utf8');
             console.log('F3 config data received:', value);
-            
+
             responseBuffer += value;
-            
+
             // Check if we have a complete config response (look for {...} pattern)
             if (responseBuffer.includes('{') && responseBuffer.includes('}')) {
               const startIndex = responseBuffer.indexOf('{');
               const endIndex = responseBuffer.lastIndexOf('}');
-              
+
               if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
                 const completeResponse = responseBuffer.substring(startIndex, endIndex + 1);
                 console.log('Complete config response:', completeResponse);
-                
+
                 clearTimeout(timeout);
                 subscription.remove();
                 resolve(completeResponse);
@@ -7507,7 +8076,7 @@ const monitorF3ForLogs = (device: any) => {
           }
         }
       );
-      
+
       // Set timeout for config response
       timeout = setTimeout(() => {
         console.log('Timeout waiting for device config response');
@@ -7518,48 +8087,51 @@ const monitorF3ForLogs = (device: any) => {
   };
 
   const fetchDeviceLogs = async () => {
-  if (!device) {
-    console.log('❌ No device available for log fetch');
-    return;
-  }
-  setLogsLoading(true)
-  console.log('=== STARTING DEVICE LOG FETCH ===');
-  try {
-    const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-    console.log('✅ Device connected for log fetch');
+    let connectedDevice;
+    if (!device) {
+      console.log('❌ No device available for log fetch');
+      connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      return;
+    }
+    connectedDevice = device.connectedDevice;
+    setLogsLoading(true)
+    console.log('=== STARTING DEVICE LOG FETCH ===');
+    try {
 
-    await connectedDevice.discoverAllServicesAndCharacteristics();
-    console.log('✅ Services discovered for log fetch');
+      console.log('✅ Device connected for log fetch');
 
-    const commandsToTry = ['send_logs', '{$send_logs}', 'logs'];
-    let response: any = null;
+      await connectedDevice.discoverAllServicesAndCharacteristics();
+      console.log('✅ Services discovered for log fetch');
 
-    for (const command of commandsToTry) {
-      console.log(`➡ Sending log command: "${command}"`);
-      await sendCommandInChunks(connectedDevice, command);
+      const commandsToTry = ['{$send_logs}'];
+      let response: any = null;
 
-      response = await monitorF3ForLogs(connectedDevice);
-      if (response && response.length > 0) {
-        console.log(`✅ Logs received for command: "${command}"`);
-        break;
+      for (const command of commandsToTry) {
+        console.log(`➡ Sending log command: "${command}"`);
+        await sendCommandInChunks(connectedDevice, command);
+
+        response = await monitorF3ForLogs(connectedDevice);
+        if (response && response.length > 0) {
+          console.log(`✅ Logs received for command: "${command}"`);
+          break;
+        }
       }
+
+      if (response && response.length > 0) {
+        console.log("✅ Parsed logs:", response);
+        setLogs((prev) => [...prev, ...response]);
+      } else {
+        console.log("❌ No logs received from device");
+      }
+    } catch (error) {
+      console.log('❌ Error fetching logs:', error);
     }
-
-    if (response && response.length > 0) {
-      console.log("✅ Parsed logs:", response);
-      setLogs((prev) => [...prev, ...response]);
-    } else {
-      console.log("❌ No logs received from device");
-    }
-  } catch (error) {
-    console.log('❌ Error fetching logs:', error);
-  }
-  console.log('=== DEVICE LOG FETCH COMPLETED ===');
-  setLogsLoading(false)
-};
+    console.log('=== DEVICE LOG FETCH COMPLETED ===');
+    setLogsLoading(false)
+  };
 
 
-const exportLogsToExcel = async () => {
+  const exportLogsToExcel = async () => {
     try {
       if (!logs || logs.length === 0) {
         alert("No logs available to export");
@@ -7587,31 +8159,31 @@ const exportLogsToExcel = async () => {
     }
   };
 
-const DeviceLogsLoading = () => (
+  const DeviceLogsLoading = () => (
     <View style={{
       flex: 1,
-      backgroundColor: theme.background,
+      backgroundColor: "#121212", // dark background
       justifyContent: 'center',
       alignItems: 'center',
       padding: 20,
     }}>
-      <StatusBar 
-        backgroundColor={theme.statusBarBg} 
-        barStyle={theme.statusBar} 
+      <StatusBar
+        backgroundColor="#1E1E1E" // dark status bar
+        barStyle="light-content"
         translucent={true}
       />
-      
+
       {/* Header */}
-      <View style={{ 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        backgroundColor: theme.primary, 
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: "#1E1E1E", // dark header
         padding: scale(16),
         paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || scale(16) : scale(16),
         elevation: 4,
-        shadowColor: theme.shadow,
+        shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.3,
         shadowRadius: 4,
         position: 'absolute',
         top: 0,
@@ -7619,20 +8191,22 @@ const DeviceLogsLoading = () => (
         right: 0,
         zIndex: 1000,
       }}>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={{
             width: scale(40),
             height: scale(40),
             borderRadius: scale(20),
-            backgroundColor: theme.overlayLight,
+            backgroundColor: "rgba(255,255,255,0.1)", // light overlay
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <Text style={{ color: theme.text, fontSize: scaleFont(24), fontWeight: 'bold' }}>‹</Text>
+          <Text style={{ color: "#FFFFFF", fontSize: scaleFont(24), fontWeight: 'bold' }}>‹</Text>
         </TouchableOpacity>
-        <Text style={{ color: theme.text, fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>Device Logs</Text>
+        <Text style={{ color: "#FFFFFF", fontWeight: 'bold', fontSize: scaleFont(22), marginLeft: scale(16), flex: 1 }}>
+          Device Logs
+        </Text>
       </View>
 
       {/* Loading Content */}
@@ -7646,65 +8220,65 @@ const DeviceLogsLoading = () => (
           width: 120,
           height: 120,
           borderRadius: 60,
-          backgroundColor: theme.primary,
+          backgroundColor: "#333333", // dark circle
           justifyContent: 'center',
           alignItems: 'center',
           elevation: 8,
-          shadowColor: theme.shadow,
+          shadowColor: "#000",
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
+          shadowOpacity: 0.4,
           shadowRadius: 8,
           marginBottom: 30,
         }}>
-          <ActivityIndicator size="large" color="#fff" />
+          <ActivityIndicator size="large" color="#FFFFFF" />
         </View>
-        
+
         <Text style={{
           fontSize: scaleFont(24),
           fontWeight: 'bold',
-          color: theme.text,
+          color: "#FFFFFF",
           marginBottom: 10,
           textAlign: 'center',
         }}>
           Fetching Device Logs
         </Text>
-        
+
         <Text style={{
           fontSize: scaleFont(16),
-          color: theme.textSecondary,
+          color: "#BBBBBB",
           textAlign: 'center',
           marginBottom: 20,
           lineHeight: 24,
         }}>
           Connecting to device and retrieving real-time logs ...
         </Text>
-        
+
         <View style={{
           flexDirection: 'row',
           alignItems: 'center',
-          backgroundColor: theme.surface,
+          backgroundColor: "#1E1E1E", // dark surface
           paddingHorizontal: 20,
           paddingVertical: 15,
           borderRadius: 12,
           elevation: 2,
-          shadowColor: theme.shadow,
+          shadowColor: "#000",
           shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
+          shadowOpacity: 0.2,
           shadowRadius: 4,
         }}>
-          <Icon name="bluetooth" size={20} color={theme.primary} />
+          <Icon name="bluetooth" size={20} color="#4DA6FF" />
           <Text style={{
             fontSize: scaleFont(14),
-            color: theme.textSecondary,
+            color: "#BBBBBB",
             marginLeft: 10,
           }}>
             Communicating with {device?.name || 'Device'}
           </Text>
         </View>
-        
+
         <Text style={{
           fontSize: scaleFont(12),
-          color: theme.textTertiary,
+          color: "#888888",
           textAlign: 'center',
           marginTop: 20,
           fontStyle: 'italic',
@@ -7720,26 +8294,26 @@ const DeviceLogsLoading = () => (
     return <DeviceLogsLoading />;
   }
   return (
-    <View style={{ 
-      flex: 1, 
-      backgroundColor: theme.isDark ? '#121212' : '#f5f5f5',
+    <View style={{
+      flex: 1,
+      backgroundColor: '#121212', // dark background
       paddingTop: getHeaderHeight(),
     }}>
-      <StatusBar 
-        backgroundColor={theme.isDark ? '#000000' : '#00bcd4'} 
-        barStyle={theme.isDark ? "light-content" : "dark-content"} 
+      <StatusBar
+        backgroundColor="#000000"
+        barStyle="light-content"
         translucent={true}
       />
-      
+
       {/* Header */}
       <View style={{
-        backgroundColor: theme.isDark ? '#1a1a1a' : '#00bcd4',
+        backgroundColor: '#1a1a1a', // dark header
         paddingHorizontal: 20,
         paddingVertical: 16,
         elevation: 4,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.3,
         shadowRadius: 4,
       }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -7749,18 +8323,18 @@ const DeviceLogsLoading = () => (
               width: 40,
               height: 40,
               borderRadius: 20,
-              backgroundColor: 'rgba(255,255,255,0.2)',
+              backgroundColor: 'rgba(255,255,255,0.1)',
               alignItems: 'center',
               justifyContent: 'center',
               marginRight: 16,
             }}
           >
-            <Icon name="arrow-left" size={20} color={theme.isDark ? '#fff' : '#fff'} />
+            <Icon name="arrow-left" size={20} color="#fff" />
           </TouchableOpacity>
           <Text style={{
             fontSize: 24,
             fontWeight: 'bold',
-            color: theme.isDark ? '#fff' : '#fff',
+            color: '#fff',
             flex: 1,
           }}>
             Live Logs
@@ -7771,7 +8345,7 @@ const DeviceLogsLoading = () => (
       {/* Device Info */}
       {device && (
         <View style={{
-          backgroundColor: theme.isDark ? '#2a2a2a' : '#e3f2fd',
+          backgroundColor: '#2a2a2a',
           marginHorizontal: 20,
           marginBottom: 20,
           padding: 16,
@@ -7782,21 +8356,21 @@ const DeviceLogsLoading = () => (
           <Text style={{
             fontSize: 16,
             fontWeight: 'bold',
-            color: theme.text,
+            color: '#ffffff',
             marginBottom: 8,
           }}>
             Connected Device
           </Text>
           <Text style={{
             fontSize: 14,
-            color: theme.textSecondary,
+            color: '#bbbbbb',
             marginBottom: 4,
           }}>
             Name: {device.name || 'Unknown'}
           </Text>
           <Text style={{
             fontSize: 12,
-            color: theme.textSecondary,
+            color: '#888888',
             fontFamily: 'monospace',
           }}>
             ID: {device.id}
@@ -7807,7 +8381,7 @@ const DeviceLogsLoading = () => (
       {/* Error Display */}
       {error && (
         <View style={{
-          backgroundColor: '#ffebee',
+          backgroundColor: '#2a0000',
           marginHorizontal: 20,
           marginBottom: 20,
           padding: 16,
@@ -7817,7 +8391,7 @@ const DeviceLogsLoading = () => (
         }}>
           <Text style={{
             fontSize: 14,
-            color: '#c62828',
+            color: '#ff6b6b',
             fontWeight: 'bold',
             marginBottom: 4,
           }}>
@@ -7825,7 +8399,7 @@ const DeviceLogsLoading = () => (
           </Text>
           <Text style={{
             fontSize: 12,
-            color: '#c62828',
+            color: '#ff6b6b',
           }}>
             {error}
           </Text>
@@ -7837,7 +8411,7 @@ const DeviceLogsLoading = () => (
         padding: 20,
         gap: 16,
       }}>
-        {/* Add Test Log Button */}
+        {/* Fetch Logs Button */}
         <TouchableOpacity
           style={{
             backgroundColor: '#4caf50',
@@ -7848,16 +8422,16 @@ const DeviceLogsLoading = () => (
             elevation: 3,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
+            shadowOpacity: 0.3,
             shadowRadius: 4,
           }}
           onPress={addTestLog}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon 
-              name="plus" 
-              size={20} 
-              color="#fff" 
+            <Icon
+              name="plus"
+              size={20}
+              color="#fff"
               style={{ marginRight: 8 }}
             />
             <Text style={{
@@ -7873,7 +8447,7 @@ const DeviceLogsLoading = () => (
         {/* Clear Logs Button */}
         <TouchableOpacity
           style={{
-            backgroundColor: '#9e9e9e',
+            backgroundColor: '#666666',
             paddingVertical: 16,
             paddingHorizontal: 24,
             borderRadius: 12,
@@ -7881,16 +8455,16 @@ const DeviceLogsLoading = () => (
             elevation: 3,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
+            shadowOpacity: 0.3,
             shadowRadius: 4,
           }}
           onPress={clearLogs}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon 
-              name="delete" 
-              size={20} 
-              color="#fff" 
+            <Icon
+              name="delete"
+              size={20}
+              color="#fff"
               style={{ marginRight: 8 }}
             />
             <Text style={{
@@ -7902,187 +8476,6 @@ const DeviceLogsLoading = () => (
             </Text>
           </View>
         </TouchableOpacity>
-
-
-
-        {/* Test Write Button - Hidden for Production */}
-        {/* 
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#9c27b0',
-            paddingVertical: 12,
-            paddingHorizontal: 24,
-            borderRadius: 12,
-            alignItems: 'center',
-            elevation: 3,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
-            shadowRadius: 4,
-          }}
-          onPress={async () => {
-            if (!device) {
-              setError('No device selected');
-              return;
-            }
-            
-            try {
-              setError('');
-              const deviceToUse = await connectToDevice();
-              if (!deviceToUse) return;
-              
-              // Test simple write operations
-              const customServiceUUID = '00000180-0000-1000-8000-00805f9b34fb';
-              const writeCharUUID = '0000fff1-0000-1000-8000-00805f9b34fb';
-              
-              const testCommands = ['test', 'hello', 'ping', '1', '0', 'send_logs'];
-              let successCount = 0;
-              
-              for (const testCmd of testCommands) {
-                try {
-                  console.log(`Testing write with: "${testCmd}"`);
-                  
-                  // Try without response first
-                  try {
-                    await deviceToUse.writeCharacteristicWithoutResponseForService(
-                      customServiceUUID,
-                      writeCharUUID,
-                      testCmd
-                    );
-                    console.log(`Write successful with: "${testCmd}" (without response)`);
-                    successCount++;
-                    
-                    const timestamp = new Date().toLocaleTimeString();
-                    setLogs(prev => [...prev, `[${timestamp}] TEST WRITE SUCCESS: "${testCmd}" (without response)`]);
-                    
-                  } catch (writeWithoutResponseErr: any) {
-                    console.log(`Write without response failed with: "${testCmd}"`, writeWithoutResponseErr);
-                    
-                    // Try with response
-                    await deviceToUse.writeCharacteristicWithResponseForService(
-                      customServiceUUID,
-                      writeCharUUID,
-                      testCmd
-                    );
-                    console.log(`Write successful with: "${testCmd}" (with response)`);
-                    successCount++;
-                    
-                    const timestamp = new Date().toLocaleTimeString();
-                    setLogs(prev => [...prev, `[${timestamp}] TEST WRITE SUCCESS: "${testCmd}" (with response)`]);
-                  }
-                  
-                } catch (err: any) {
-                  console.log(`Write failed with: "${testCmd}"`, err);
-                  const timestamp = new Date().toLocaleTimeString();
-                  setLogs(prev => [...prev, `[${timestamp}] TEST WRITE FAILED: "${testCmd}" - ${err.message}`]);
-                }
-              }
-              
-              const timestamp = new Date().toLocaleTimeString();
-              setLogs(prev => [...prev, `[${timestamp}] TEST COMPLETE: ${successCount}/${testCommands.length} writes successful`]);
-              
-            } catch (err: any) {
-              setError(`Test failed: ${err.message}`);
-            }
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon 
-              name="test-tube" 
-              size={20} 
-              color="#fff" 
-              style={{ marginRight: 8 }}
-            />
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontWeight: 'bold',
-            }}>
-              Test Write
-            </Text>
-          </View>
-        </TouchableOpacity>
-        */}
-
-        {/* Test Log Format Button - Hidden for Production */}
-        {/* 
-        <TouchableOpacity
-          style={{
-            backgroundColor: '#2196f3',
-            paddingVertical: 12,
-            paddingHorizontal: 24,
-            borderRadius: 12,
-            alignItems: 'center',
-            elevation: 3,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.2,
-            shadowRadius: 4,
-          }}
-          onPress={async () => {
-            if (!device) {
-              setError('No device selected');
-              return;
-            }
-            
-            try {
-              setError('');
-              
-              // Test with your specific log format
-              const testLogs = [
-                "{D:2025-01-01,T:00:00:00,Server:NODE_001,IMEI:123IEMEI457,FR_v:1.0.0,Lat:28.6139,Lon:77.2090,Bat:100.00%,Sol:100.00%,Logs:0,PH:7.10,TDS:450.00,TPA:1.00,TPW:5.00,FLW:2.30,PSR:1.00,CLO:0.00,WGT:50.00,TBD:1.00,SW1:0.00,SW2:0.00,UFM:0.00}",
-                "{D:2025-01-01,T:00:02:00,Server:NODE_001,IMEI:123IEMEI457,FR_v:1.0.0,Lat:28.6139,Lon:77.2090,Bat:99.00%,Sol:98.00%,Logs:1,PH:7.12,TDS:455.00,TPA:1.10,TPW:5.10,FLW:2.40,PSR:1.10,CLO:0.10,WGT:50.20,TBD:1.10,SW1:0.10,SW2:0.00,UFM:0.10}",
-                "{D:2025-01-01,T:00:04:00,Server:NODE_001,IMEI:123IEMEI457,FR_v:1.0.0,Lat:28.6139,Lon:77.2090,Bat:98.00%,Sol:97.00%,Logs:2,PH:7.14,TDS:460.00,TPA:1.20,TPW:5.20,FLW:2.50,PSR:1.20,CLO:0.20,WGT:50.40,TBD:1.20,SW1:0.20,SW2:0.10,UFM:0.20}"
-              ];
-              
-              const timestamp = new Date().toLocaleTimeString();
-              setLogs(prev => [...prev, `[${timestamp}] 🧪 TESTING LOG FORMAT PARSING...`]);
-              
-              for (const testLog of testLogs) {
-                const logData = parseLogData(testLog);
-                if (logData) {
-                  const formattedLog = formatLogForDisplay(logData);
-                  const logTimestamp = new Date().toLocaleTimeString();
-                  setLogs(prev => [...prev, `[${logTimestamp}] 📊 TEST LOG:\n${formattedLog}`]);
-                } else {
-                  const logTimestamp = new Date().toLocaleTimeString();
-                  setLogs(prev => [...prev, `[${logTimestamp}] ❌ FAILED TO PARSE: ${testLog}`]);
-                }
-              }
-              
-              const finalTimestamp = new Date().toLocaleTimeString();
-              setLogs(prev => [...prev, `[${finalTimestamp}] ✅ LOG FORMAT TEST COMPLETE`]);
-              
-            } catch (err: any) {
-              setError(`Log format test failed: ${err.message}`);
-            }
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Icon 
-              name="format-list-bulleted" 
-              size={20} 
-              color="#fff" 
-              style={{ marginRight: 8 }}
-            />
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontWeight: 'bold',
-            }}>
-              Test Log Format
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-
-
-
-
-
-
-        {/* Full Screen Logs Button */}
-       
       </View>
 
       {/* Logs Display */}
@@ -8092,26 +8485,26 @@ const DeviceLogsLoading = () => (
         marginBottom: 20,
       }}>
         <View style={{
-          backgroundColor: theme.isDark ? '#1a1a1a' : '#fff',
+          backgroundColor: '#1a1a1a',
           borderRadius: 12,
           padding: 16,
           flex: 1,
           elevation: 2,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.1,
+          shadowOpacity: 0.2,
           shadowRadius: 2,
         }}>
           <Text style={{
             fontSize: 16,
             fontWeight: 'bold',
-            color: theme.text,
+            color: '#ffffff',
             marginBottom: 12,
           }}>
             Live Logs ({logs.length} entries)
           </Text>
-          
-          <ScrollView 
+
+          <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
           >
@@ -8122,14 +8515,14 @@ const DeviceLogsLoading = () => (
                 alignItems: 'center',
                 paddingVertical: 40,
               }}>
-                <Icon 
-                  name="file-document-outline" 
-                  size={48} 
-                  color={theme.textSecondary} 
+                <Icon
+                  name="file-document-outline"
+                  size={48}
+                  color="#888888"
                 />
                 <Text style={{
                   fontSize: 16,
-                  color: theme.textSecondary,
+                  color: '#888888',
                   marginTop: 16,
                   textAlign: 'center',
                 }}>
@@ -8139,20 +8532,25 @@ const DeviceLogsLoading = () => (
               </View>
             ) : (
               logs.map((log, index) => (
-  <View key={index} style={{ marginBottom: 10, padding: 8, backgroundColor: "#f9f9f9", borderRadius: 6 }}>
-    {Object.entries(log).map(([key, value]) => (
-      <Text key={key} style={{ fontSize: 14 }}>
-        {key}: {String(value)}
-      </Text>
-    ))}
-  </View>
-))
+                <View key={index} style={{
+                  marginBottom: 10,
+                  padding: 8,
+                  backgroundColor: "#2a2a2a",
+                  borderRadius: 6
+                }}>
+                  {Object.entries(log).map(([key, value]) => (
+                    <Text key={key} style={{ fontSize: 14, color: '#eeeeee' }}>
+                      {key}: {String(value)}
+                    </Text>
+                  ))}
+                </View>
+              ))
             )}
           </ScrollView>
         </View>
       </View>
 
-      {/* Floating Action Button for Full Screen */}
+      {/* Floating Action Button for Export */}
       {logs.length > 0 && (
         <TouchableOpacity
           style={{
@@ -8168,7 +8566,7 @@ const DeviceLogsLoading = () => (
             elevation: 8,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
+            shadowOpacity: 0.4,
             shadowRadius: 8,
           }}
           onPress={exportLogsToExcel}
@@ -8177,6 +8575,7 @@ const DeviceLogsLoading = () => (
         </TouchableOpacity>
       )}
     </View>
+
   );
 }
 
@@ -8191,7 +8590,7 @@ function FullScreenLogsScreen({ navigation, route }: { navigation: any; route: a
     if (searchText.trim() === '') {
       setFilteredLogs(logs || []);
     } else {
-      const filtered = (logs || []).filter(log => 
+      const filtered = (logs || []).filter(log =>
         log.toLowerCase().includes(searchText.toLowerCase())
       );
       setFilteredLogs(filtered);
@@ -8218,16 +8617,16 @@ function FullScreenLogsScreen({ navigation, route }: { navigation: any; route: a
   };
 
   return (
-    <View style={{ 
-      flex: 1, 
+    <View style={{
+      flex: 1,
       backgroundColor: theme.isDark ? '#000000' : '#ffffff',
     }}>
-      <StatusBar 
-        backgroundColor={theme.isDark ? '#000000' : '#ffffff'} 
-        barStyle={theme.isDark ? "light-content" : "dark-content"} 
+      <StatusBar
+        backgroundColor={theme.isDark ? '#000000' : '#ffffff'}
+        barStyle={theme.isDark ? "light-content" : "dark-content"}
         translucent={false}
       />
-      
+
       {/* Full Screen Logs Display */}
       <View style={{ flex: 1 }}>
         {filteredLogs.length === 0 ? (
@@ -8237,10 +8636,10 @@ function FullScreenLogsScreen({ navigation, route }: { navigation: any; route: a
             alignItems: 'center',
             paddingVertical: 40,
           }}>
-            <Icon 
-              name="file-document-outline" 
-              size={64} 
-              color={theme.textSecondary} 
+            <Icon
+              name="file-document-outline"
+              size={64}
+              color={theme.textSecondary}
             />
             <Text style={{
               fontSize: 18,
@@ -8268,13 +8667,13 @@ function FullScreenLogsScreen({ navigation, route }: { navigation: any; route: a
             )}
           </View>
         ) : (
-          <ScrollView 
+          <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={true}
             contentContainerStyle={{ padding: 8 }}
           >
             {filteredLogs.map((log, index) => (
-              <View 
+              <View
                 key={index}
                 style={{
                   backgroundColor: theme.isDark ? '#1a1a1a' : '#f8f9fa',
@@ -8429,16 +8828,16 @@ function RawLogsView({ navigation, route }: { navigation: any; route: any }) {
   const { logs } = route.params || [];
 
   return (
-    <View style={{ 
-      flex: 1, 
+    <View style={{
+      flex: 1,
       backgroundColor: theme.isDark ? '#000000' : '#ffffff',
     }}>
-      <StatusBar 
-        backgroundColor={theme.isDark ? '#000000' : '#607d8b'} 
-        barStyle={theme.isDark ? "light-content" : "light-content"} 
+      <StatusBar
+        backgroundColor={theme.isDark ? '#000000' : '#607d8b'}
+        barStyle={theme.isDark ? "light-content" : "light-content"}
         translucent={false}
       />
-      
+
       {/* Header */}
       <View style={{
         backgroundColor: theme.isDark ? '#1a1a1a' : '#607d8b',
@@ -8485,10 +8884,10 @@ function RawLogsView({ navigation, route }: { navigation: any; route: any }) {
             alignItems: 'center',
             paddingVertical: 40,
           }}>
-            <Icon 
-              name="code-braces" 
-              size={64} 
-              color={theme.textSecondary} 
+            <Icon
+              name="code-braces"
+              size={64}
+              color={theme.textSecondary}
             />
             <Text style={{
               fontSize: 18,
@@ -8500,13 +8899,13 @@ function RawLogsView({ navigation, route }: { navigation: any; route: any }) {
             </Text>
           </View>
         ) : (
-          <ScrollView 
+          <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={true}
             contentContainerStyle={{ padding: 16 }}
           >
             {logs.map((log, index) => (
-              <View 
+              <View
                 key={index}
                 style={{
                   backgroundColor: theme.isDark ? '#1a1a1a' : '#f8f9fa',
@@ -8589,25 +8988,25 @@ function SplashScreen({ navigation }: { navigation: any }) {
   }, [navigation]);
 
   return (
-    <View style={{ 
-      flex: 1, 
+    <View style={{
+      flex: 1,
       backgroundColor: '#000000',
       justifyContent: 'center',
       alignItems: 'center',
     }}>
-      <StatusBar 
-        backgroundColor="#000000" 
-        barStyle="light-content" 
+      <StatusBar
+        backgroundColor="#000000"
+        barStyle="light-content"
         translucent={true}
       />
-      
+
       <Animated.View style={{
         opacity: fadeAnim,
         transform: [{ scale: scaleAnim }],
         alignItems: 'center',
       }}>
         {/* Logo Image */}
-        <Image 
+        <Image
           source={require('./src/assets/SWN_CHIEF_LOGO_FINAL.png')}
           style={{
             width: 300,
@@ -8615,7 +9014,7 @@ function SplashScreen({ navigation }: { navigation: any }) {
             resizeMode: 'contain',
           }}
         />
-        
+
         {/* Loading indicator */}
         <View style={{
           alignItems: 'center',
@@ -8675,7 +9074,7 @@ function SplashScreen({ navigation }: { navigation: any }) {
               }]
             }} />
           </View>
-          
+
           {/* Loading Text */}
           <Text style={{
             color: '#666666',
@@ -8695,55 +9094,56 @@ export default function App() {
   return (
     <ThemeProvider>
       <TimerProvider>
-    <NavigationContainer>
-      <Stack.Navigator 
-        initialRouteName="Splash"
-        screenOptions={{ 
-          headerShown: false,
-          cardStyleInterpolator: ({ current, layouts }) => {
-            return {
-              cardStyle: {
-                transform: [
-                  {
-                    translateX: current.progress.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [layouts.screen.width, 0],
-                    }),
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="Splash"
+            screenOptions={{
+              headerShown: false,
+              cardStyleInterpolator: ({ current, layouts }) => {
+                return {
+                  cardStyle: {
+                    transform: [
+                      {
+                        translateX: current.progress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [layouts.screen.width, 0],
+                        }),
+                      },
+                    ],
                   },
-                ],
+                };
               },
-            };
-          },
-          transitionSpec: {
-            open: {
-              animation: 'timing',
-              config: {
-                duration: 300,
-                easing: Easing.out(Easing.poly(4)),
+              transitionSpec: {
+                open: {
+                  animation: 'timing',
+                  config: {
+                    duration: 300,
+                    easing: Easing.out(Easing.poly(4)),
+                  },
+                },
+                close: {
+                  animation: 'timing',
+                  config: {
+                    duration: 300,
+                    easing: Easing.in(Easing.poly(4)),
+                  },
+                },
               },
-            },
-            close: {
-              animation: 'timing',
-              config: {
-                duration: 300,
-                easing: Easing.in(Easing.poly(4)),
-              },
-            },
-          },
-        }}
-      >
-                            <Stack.Screen name="Splash" component={SplashScreen} />
-              <Stack.Screen name="Scanner" component={ScannerScreen} />
-              <Stack.Screen name="DeviceDashboard" component={DeviceDashboardView} />
-              <Stack.Screen name="DeviceDetails" component={DeviceDetailsScreen} />
-              <Stack.Screen name="Settings" component={SettingsScreen} />
-              <Stack.Screen name="SensorCalibration" component={SensorCalibrationScreen} />
-              <Stack.Screen name="LiveLogs" component={LiveLogsScreen} />
-              <Stack.Screen name="FullScreenLogs" component={FullScreenLogsScreen} />
-              <Stack.Screen name="RawLogsView" component={RawLogsView} />
-      </Stack.Navigator>
-    </NavigationContainer>
-    </TimerProvider>
+            }}
+          >
+            <Stack.Screen name="Splash" component={SplashScreen} />
+            <Stack.Screen name="Scanner" component={ScannerScreen} />
+            <Stack.Screen name="DeviceDashboard" component={DeviceDashboardView} />
+            <Stack.Screen name="DeviceDetails" component={DeviceDetailsScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="SensorCalibration" component={SensorCalibrationScreen} />
+            <Stack.Screen name="LiveLogs" component={LiveLogsScreen} />
+            <Stack.Screen name="Terminal" component={Terminal} />
+            <Stack.Screen name="FullScreenLogs" component={FullScreenLogsScreen} />
+            <Stack.Screen name="RawLogsView" component={RawLogsView} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </TimerProvider>
     </ThemeProvider>
   );
 }
@@ -8751,12 +9151,12 @@ export default function App() {
 
 
 const styles = StyleSheet.create({
-  topBar: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#00bcd4', 
-    padding: 16, 
-    borderTopLeftRadius: 16, 
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#00bcd4',
+    padding: 16,
+    borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     elevation: 4,
     shadowColor: '#000',
@@ -8764,26 +9164,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  topBarTitle: { 
-    color: '#fff', 
-    fontWeight: 'bold', 
-    fontSize: 24, 
-    marginLeft: 16, 
-    flex: 1, 
-    textAlign: 'center' 
+  topBarTitle: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 24,
+    marginLeft: 16,
+    flex: 1,
+    textAlign: 'center'
   },
-  scanBtnRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
+  scanBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     marginVertical: 16,
     paddingHorizontal: 20
   },
-  scanBtn: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#0097a7', 
-    paddingHorizontal: 24, 
-    paddingVertical: 12, 
+  scanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0097a7',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 25,
     elevation: 3,
     shadowColor: '#000',
@@ -8791,52 +9191,52 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
-  deviceCardRow: { 
-    flexDirection: 'row', 
-    backgroundColor: '#fff', 
-    borderRadius: scale(16), 
-    marginVertical: getSpacing(8), 
-    marginHorizontal: getSpacing(4), 
-    padding: getCardPadding(), 
-    alignItems: 'center', 
+  deviceCardRow: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: scale(16),
+    marginVertical: getSpacing(8),
+    marginHorizontal: getSpacing(4),
+    padding: getCardPadding(),
+    alignItems: 'center',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  rssiCircle: { 
-    width: 56, 
-    height: 56, 
-    borderRadius: 28, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
+  rssiCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginRight: 6,
     elevation: 2,
   },
-  deviceName: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
+  deviceName: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#222',
     marginBottom: 2
   },
-  deviceId: { 
-    fontSize: 12, 
-    color: '#888', 
+  deviceId: {
+    fontSize: 12,
+    color: '#888',
     marginBottom: 4,
     fontFamily: 'monospace'
   },
-  deviceMeta: { 
-    fontSize: 12, 
+  deviceMeta: {
+    fontSize: 12,
     color: '#666',
     marginLeft: 4
   },
-  connectBtn: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 8, 
-    borderRadius: 20, 
-    marginTop: 2, 
-    minWidth: 100, 
+  connectBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 2,
+    minWidth: 100,
     alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',
@@ -8844,12 +9244,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
   },
-  infoBtn: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    alignItems: 'center', 
-    justifyContent: 'center', 
+  infoBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 2,
     elevation: 2,
     shadowColor: '#000',
@@ -8865,23 +9265,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#f0f8ff',
   },
-  rawData: { 
-    color: '#2196F3', 
-    fontWeight: 'bold', 
-    fontSize: 11, 
-    marginLeft: 4 
+  rawData: {
+    color: '#2196F3',
+    fontWeight: 'bold',
+    fontSize: 11,
+    marginLeft: 4
   },
-  log: { 
-    marginTop: 12, 
-    fontSize: 12, 
-    color: '#666', 
+  log: {
+    marginTop: 12,
+    fontSize: 12,
+    color: '#666',
     textAlign: 'center',
     paddingHorizontal: 20,
     fontStyle: 'italic'
   },
-  placeholder: { 
-    flex: 1, 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  placeholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
 });
