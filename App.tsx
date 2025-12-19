@@ -352,13 +352,7 @@ const TimerContext = createContext({ currentTime: new Date() });
 function TimerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
 
-    return () => clearInterval(timer);
-  }, []);
 
   const value = useMemo(() => ({ currentTime }), [currentTime]);
 
@@ -1178,7 +1172,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       // Discover services and characteristics with retries
       let attempts = 3;
       while (attempts > 0) {
-        try {
+        try { 
           await device.discoverAllServicesAndCharacteristics();
           const services = await device.services();
           if (services.length === 0) {
@@ -1532,7 +1526,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
         );
 
         // Small delay between chunks
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // await new Promise(resolve => setTimeout(resolve, 50));
       }
 
       console.log('Command sent successfully in chunks');
@@ -1549,10 +1543,10 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       let responseData = '';
       let timeoutId: NodeJS.Timeout;
 
-      const timeout = setTimeout(() => {
-        console.log('Device status response timeout');
-        reject(new Error('Device status response timeout'));
-      }, 10000); // 10 second timeout
+      // const timeout = setTimeout(() => {
+      //   console.log('Device status response timeout');
+      //   reject(new Error('Device status response timeout'));
+      // }, 10000); // 10 second timeout
 
       device.monitorCharacteristicForService(
         SERVICE_UUID,
@@ -1560,7 +1554,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
         (error: any, characteristic: any) => {
           if (error) {
             console.log('F3 monitoring error:', error);
-            clearTimeout(timeout);
+            // clearTimeout(timeout);
             reject(error);
             return;
           }
@@ -1578,7 +1572,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               const completeMessage = responseData.substring(start, end);
 
               console.log('Complete device status message:', completeMessage);
-              clearTimeout(timeout);
+              // clearTimeout(timeout);
               resolve(completeMessage);
             }
           }
@@ -1588,7 +1582,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
   };
 
   // Main function to fetch device status
-  const fetchDeviceStatus = async () => {
+  const  fetchDeviceStatus = async () => {
     if (!device) {
       console.log('❌ No device available');
       return;
@@ -1601,7 +1595,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       // Cancel old connection
       try {
         await manager.cancelDeviceConnection(device.id);
-        await new Promise(res => setTimeout(res, 500));
+        // await new Promise(res => setTimeout(res, 500));
       } catch {
         // ignore cancel errors
       }
@@ -1826,11 +1820,11 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
         );
 
         // Fallback timeout
-        timeoutHandle = setTimeout(() => {
-          console.log('Config fetch timed out, returning partial data:', responseBuffer);
-          subscription.remove();
-          resolve(responseBuffer || null);
-        }, 8000);
+        // timeoutHandle = setTimeout(() => {
+        //   console.log('Config fetch timed out, returning partial data:', responseBuffer);
+        //   subscription.remove();
+        //   resolve(responseBuffer || null);
+        // }, 8000);
 
       } catch (err) {
         console.log('Error in monitorF3ForDeviceConfig:', err);
@@ -1966,14 +1960,14 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       // Cancel old connection
       try {
         await manager.cancelDeviceConnection(device.id);
-        await new Promise(res => setTimeout(res, 500));
+        // await new Promise(res => setTimeout(res, 500));
       } catch {
         // ignore cancel errors
       }
 
       // Connect
       console.log('🔌 Connecting to device...');
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
+      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 1500 });
       await connectedDevice.discoverAllServicesAndCharacteristics();
       console.log('✅ Device connected & services discovered');
 
@@ -2081,7 +2075,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
           }
 
           // Parse the key (Key:<value>)
-          const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+          const keyMatch = sensorEntry?.match(/Key:([^,}]+)/);
           const key = keyMatch ? keyMatch[1].trim() : '';
 
           // Skip entries with empty Key
@@ -2097,12 +2091,12 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
           keyNames.push(uniqueSensorKey);
 
           // Extract other fields
-          const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-          const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-          const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
-          const valMatch = sensorEntry.match(/Val:([^,}]+)/);
-          const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
-          const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+          const offsetMatch = sensorEntry?.match(/Offset:([^,}]+)/);
+          const scaleMatch = sensorEntry?.match(/Scale:([^,}]+)/);
+          const isEnMatch = sensorEntry?.match(/is_en:([^,}]+)/);
+          const valMatch = sensorEntry?.match(/Val:([^,}]+)/);
+          const rs485Match = sensorEntry?.match(/RS485:([^,}]+)/);
+          const responseMatch = sensorEntry?.match(/Response:([^,}]+)/);
 
           sensorData[uniqueSensorKey] = {
             offset: offsetMatch ? parseFloat(offsetMatch[1]) : 0,
@@ -2332,7 +2326,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       ];
 
       for (const pattern of patterns) {
-        const match = logsData.match(pattern);
+        const match = logsData?.match(pattern);
         if (match && match[1]) {
           const extracted = match[1].trim();
           console.log(`IMEI found with pattern ${pattern}:`, extracted);
@@ -2341,7 +2335,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
       }
 
       // If no pattern matches, try to find any 15-digit number (typical IMEI length)
-      const digitMatch = logsData.match(/\b\d{15}\b/);
+      const digitMatch = logsData?.match(/\b\d{15}\b/);
       if (digitMatch) {
         console.log('IMEI found as 15-digit number:', digitMatch[0]);
         return digitMatch[0];
@@ -2469,7 +2463,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
 
               let extractedServerSite = '';
               for (const pattern of serverSitePatterns) {
-                const match = completeMessage.match(pattern);
+                const match = completeMessage?.match(pattern);
                 if (match && match[1]) {
                   extractedServerSite = match[1].trim();
                   console.log(`Server site name found with pattern ${pattern}:`, extractedServerSite);
@@ -2524,10 +2518,10 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
 
       // Monitor F3 for IMEI response
       let responseData = '';
-      const timeout = setTimeout(() => {
-        console.log('IMEI response timeout');
-        console.log('Timeout: No IMEI response received from command "4"');
-      }, 10000);
+      // const timeout = setTimeout(() => {
+      //   console.log('IMEI response timeout');
+      //   console.log('Timeout: No IMEI response received from command "4"');
+      // }, 10000);
 
       connectedDevice.monitorCharacteristicForService(
         SERVICE_UUID,
@@ -2535,7 +2529,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
         (error: any, characteristic: any) => {
           if (error) {
             console.log('F3 monitoring error:', error);
-            clearTimeout(timeout);
+            // clearTimeout(timeout);
             return;
           }
 
@@ -2552,7 +2546,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
               const completeMessage = responseData.substring(start, end);
 
               console.log('Complete IMEI message from command "4":', completeMessage);
-              clearTimeout(timeout);
+              // clearTimeout(timeout);
 
               // Show raw response for debugging
               console.log('Raw Response from Command "4":', completeMessage);
@@ -2950,7 +2944,7 @@ function DeviceDashboardView({ route, navigation }: { route: any; navigation: an
                 <Text style={{
                   fontSize: 18,
                   fontWeight: '600',
-                  color: '#fff',
+                  color: '#333',
                   marginBottom: 8
                 }}>
                   Device Operations
@@ -4444,7 +4438,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               base64Chunk
             );
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // await new Promise(resolve => setTimeout(resolve, 50));
           }
 
           console.log('Fresh device config requested, will update settings when response received');
@@ -4881,8 +4875,8 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
 
             sensorNames.push(uniqueSensorKey);
 
-            const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-            const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
+            const offsetMatch = sensorEntry?.match(/Offset:([^,}]+)/);
+            const scaleMatch = sensorEntry?.match(/Scale:([^,}]+)/);
 
             if (offsetMatch && scaleMatch) {
               sensorData[uniqueSensorKey] = {
@@ -5613,7 +5607,7 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
           </Text>
 
           {/* Theme Options */}
-          <View style={{ gap: 8 }}>
+          {/* <View style={{ gap: 8 }}>
             <TouchableOpacity
               style={{
                 backgroundColor: themeType === 'light' ? theme.primary : theme.isDark ? '#2a2a2a' : '#f8f9fa',
@@ -5869,12 +5863,12 @@ function SettingsScreen({ navigation, route }: { navigation: any; route: any }) 
               }}
               activeOpacity={0.8}
             >
-              <Icon name="refresh" size={16} color="#fff" style={{ marginRight: 8 }} />
+              <Icon name="refresh" size={16} color= "#fff" style={{ marginRight: 8 }} />
               <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
                 🔄 Refresh from Device
               </Text>
             </TouchableOpacity>
-          </View>
+          </View> */}
         </View>
       </ScrollView>
 
@@ -6483,7 +6477,7 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
           }
 
           // Parse the key (Key:<value>)
-          const keyMatch = sensorEntry.match(/Key:([^,}]+)/);
+          const keyMatch = sensorEntry?.match(/Key:([^,}]+)/);
           const key = keyMatch ? keyMatch[1].trim() : '';
 
           // Skip entries with empty Key
@@ -6499,12 +6493,12 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
           sensorNames.push(uniqueSensorKey);
 
           // Extract other fields
-          const offsetMatch = sensorEntry.match(/Offset:([^,}]+)/);
-          const scaleMatch = sensorEntry.match(/Scale:([^,}]+)/);
-          const isEnMatch = sensorEntry.match(/is_en:([^,}]+)/);
-          const valMatch = sensorEntry.match(/Val:([^,}]+)/);
-          const rs485Match = sensorEntry.match(/RS485:([^,}]+)/);
-          const responseMatch = sensorEntry.match(/Response:([^,}]+)/);
+          const offsetMatch = sensorEntry?.match(/Offset:([^,}]+)/);
+          const scaleMatch = sensorEntry?.match(/Scale:([^,}]+)/);
+          const isEnMatch = sensorEntry?.match(/is_en:([^,}]+)/);
+          const valMatch = sensorEntry?.match(/Val:([^,}]+)/);
+          const rs485Match = sensorEntry?.match(/RS485:([^,}]+)/);
+          const responseMatch = sensorEntry?.match(/Response:([^,}]+)/);
 
           sensorData[uniqueSensorKey] = {
             key,
@@ -6598,15 +6592,16 @@ function SensorCalibrationScreen({ route, navigation }: { route: any; navigation
   const fetchSensorData = async () => {
     try {
       const { device } = route.params || {};
+      let connectedDevice;
       if (!device) {
         console.log('No device available for fetching sensor data');
-        Alert.alert('Error', 'No device available for fetching sensor data.');
-        return null;
+       connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+        
       }
-
+      connectedDevice=device.connectedDevice
       console.log('=== FETCHING SENSOR DATA FROM DEVICE ===');
       setShowLoadingModal(true);
-      const connectedDevice = await manager.connectToDevice(device.id, { timeout: 10000 });
+       
       await connectedDevice.discoverAllServicesAndCharacteristics();
 
       const commandSent = await sendCommandInChunks(connectedDevice, '{$send_sensor_data}');
@@ -7971,11 +7966,13 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
       const subscription = device.monitorCharacteristicForService(
         SERVICE_UUID,
         F3_NOTIFY_UUID,
-        (error: any, characteristic: any) => {
+        (error, characteristic) => {
           if (error) {
-            console.error('❌ Error monitoring F3 for logs:', error);
-            finish(logs.length ? logs : null);
-            return;
+            console.error('❌ Notification error:', error);
+            if (error.message.includes('Device was disconnected') || error.message.includes('not found')) {
+              // Handle disconnection gracefully
+            }
+           
           }
 
           if (characteristic?.value) {
@@ -8020,16 +8017,12 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
             inactivityTimer = setTimeout(() => {
               console.log('⏳ Logs collection inactivity timeout');
               finish(logs.length ? logs : null);
-            }, 5000);
+            }, 15000);
           }
         }
       );
 
-      // Max timeout safety (20s)
-      maxTimer = setTimeout(() => {
-        console.log('⏰ Max logs monitoring timeout reached');
-        finish(logs.length ? logs : null);
-      }, 20000);
+    
     });
   };
 
@@ -8091,7 +8084,7 @@ function LiveLogsScreen({ navigation, route }: { navigation: any; route: any }) 
     if (!device) {
       console.log('❌ No device available for log fetch');
       connectedDevice = await manager.connectToDevice(device.id, { timeout: 15000 });
-      return;
+      
     }
     connectedDevice = device.connectedDevice;
     setLogsLoading(true)
