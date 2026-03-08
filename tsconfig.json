@@ -1,0 +1,7 @@
+ {
+      "compilerOptions": {
+        "jsx": "react", // Or "react-jsx" depending on your React version and setup
+        // ... other compiler options
+      },
+      // ... other tsconfig options
+    }
